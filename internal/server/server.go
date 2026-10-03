@@ -46,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 	s.gameRoutes(mux)
 	s.saveRoutes(mux)
 	s.importRoutes(mux)
+	s.settingsRoutes(mux)
 	if s.Files != nil {
 		files := http.FileServerFS(s.Files)
 		mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
