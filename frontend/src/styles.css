@@ -664,6 +664,30 @@ footer {
   background: none;
   color: var(--fg-3);
 }
+/* Landscape: the controls sit on the game, so only outlines show until
+   pressed. */
+.controls.over .ctl {
+  opacity: 0.55;
+}
+.controls.over .ctl.round,
+.controls.over .ctl.rect,
+.controls.over .dpad .arm,
+.controls.over .dpad .hub {
+  background: rgb(0 0 0 / 0.12);
+  border-color: rgb(255 255 255 / 0.45);
+}
+.controls.over .ctl {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+}
+.controls.over .ctl.on,
+.controls.over .dpad:has(.on) {
+  opacity: 1;
+}
+.controls.over .ctl.on,
+.controls.over .dpad .arm.on {
+  background: rgb(37 99 255 / 0.55);
+  border-color: var(--accent-hi);
+}
 .ctl.on,
 .arm.on {
   background: rgb(37 99 255 / 0.55);

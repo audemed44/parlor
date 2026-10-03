@@ -79,4 +79,14 @@ describe("layout", () => {
       expect(l.screen.w / l.screen.h).toBeCloseTo(1.5);
     }
   });
+  it("fills the height in landscape, with the controls over the game", () => {
+    const l = layout(734, 372);
+    expect(l.landscape).toBe(true);
+    expect(l.screen.h).toBe(372);
+    const dpad = l.shapes.find((s) => s.id === "dpad")! as Circle;
+    const b = l.shapes.find((s) => s.id === "B")! as Circle;
+    // Both thumbs' controls overlap the picture.
+    expect(dpad.x + dpad.r).toBeGreaterThan(l.screen.x);
+    expect(b.x - b.r).toBeLessThan(l.screen.x + l.screen.w);
+  });
 });
