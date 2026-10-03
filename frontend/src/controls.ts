@@ -28,62 +28,33 @@ export interface Layout {
   // The screen's box, in the same coordinates (landscape: controls sit
   // around it; portrait: above the controls).
   screen: { x: number; y: number; w: number; h: number };
+  // Controls drawn over the game rather than beside it.
+  landscape?: boolean;
 }
 
 // layout places the controls for an area of w×h CSS pixels. Portrait: the
-// screen on top, controls below, like a GBA SP. Landscape: the screen in
-// the middle, controls either side.
+// screen on top, controls below, like a GBA SP. Landscape: the screen as
+// big as it fits, with the controls laid over it, see-through, at the
+// edges where thumbs rest.
 export function layout(w: number, h: number): Layout {
   if (w > h) {
     const s = Math.min(h / 390, w / 844, 1.4);
-    const screenH = Math.min(h, (w - 2 * 230 * s) / 1.5);
+    const screenH = Math.min(h, w / 1.5);
     const screenW = screenH * 1.5;
     const screen = { x: (w - screenW) / 2, y: (h - screenH) / 2, w: screenW, h: screenH };
-    const side = (w - screenW) / 2;
+    const pad = 84 * s; // centre of the d-pad and of A/B from the side
     return {
       screen,
+      landscape: true,
       shapes: [
-        {
-          kind: "rect",
-          id: "L",
-          x: 12 * s,
-          y: 10 * s,
-          w: Math.min(side - 24 * s, 150 * s),
-          h: 44 * s,
-        },
-        {
-          kind: "rect",
-          id: "R",
-          x: w - 12 * s - Math.min(side - 24 * s, 150 * s),
-          y: 10 * s,
-          w: Math.min(side - 24 * s, 150 * s),
-          h: 44 * s,
-        },
-        { kind: "dpad", id: "dpad", x: Math.max(side / 2, 82 * s), y: h * 0.56, r: 66 * s },
-        {
-          kind: "round",
-          id: "A",
-          x: w - Math.max(side / 2, 82 * s) + 38 * s,
-          y: h * 0.5,
-          r: 32 * s,
-        },
-        {
-          kind: "round",
-          id: "B",
-          x: w - Math.max(side / 2, 82 * s) - 38 * s,
-          y: h * 0.5 + 34 * s,
-          r: 32 * s,
-        },
-        { kind: "rect", id: "Select", x: side / 2 - 36 * s, y: h - 46 * s, w: 72 * s, h: 28 * s },
-        {
-          kind: "rect",
-          id: "Start",
-          x: w - side / 2 - 36 * s,
-          y: h - 46 * s,
-          w: 72 * s,
-          h: 28 * s,
-        },
-        { kind: "rect", id: "Menu", x: w / 2 - 30 * s, y: h - 30 * s, w: 60 * s, h: 26 * s },
+        { kind: "rect", id: "L", x: 10 * s, y: 10 * s, w: 120 * s, h: 40 * s },
+        { kind: "rect", id: "R", x: w - 130 * s, y: 10 * s, w: 120 * s, h: 40 * s },
+        { kind: "rect", id: "Menu", x: w / 2 - 28 * s, y: 6 * s, w: 56 * s, h: 24 * s },
+        { kind: "dpad", id: "dpad", x: pad, y: h * 0.58, r: 66 * s },
+        { kind: "round", id: "A", x: w - pad + 36 * s, y: h * 0.52, r: 32 * s },
+        { kind: "round", id: "B", x: w - pad - 38 * s, y: h * 0.52 + 36 * s, r: 32 * s },
+        { kind: "rect", id: "Select", x: 14 * s, y: h - 40 * s, w: 70 * s, h: 28 * s },
+        { kind: "rect", id: "Start", x: w - 84 * s, y: h - 40 * s, w: 70 * s, h: 28 * s },
       ],
     };
   }

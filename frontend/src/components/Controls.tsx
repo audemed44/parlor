@@ -88,7 +88,7 @@ export function Controls({
 
   const on = (id: Press) => (lit.has(id) ? " on" : "");
   return (
-    <div class="controls" ref={ref} data-testid="controls">
+    <div class={"controls" + (layout.landscape ? " over" : "")} ref={ref} data-testid="controls">
       {layout.shapes.map((s) => {
         if (s.kind === "rect") {
           return (
