@@ -1,0 +1,199 @@
+// Touch controls: where each control sits, and which GBA buttons a set of
+// touches presses. Drawing and hit-testing share the same shapes, so what
+// you see is what you press. Hit zones are larger than the drawn controls.
+
+export type Key = "A" | "B" | "L" | "R" | "Start" | "Select" | "Up" | "Down" | "Left" | "Right";
+// "Menu" isn't a GBA button: it opens Parlor's menu.
+export type Press = Key | "Menu";
+
+export interface Circle {
+  kind: "dpad" | "round";
+  id: string;
+  x: number;
+  y: number;
+  r: number;
+}
+export interface Rect {
+  kind: "rect";
+  id: Press;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export type Shape = Circle | Rect;
+
+export interface Layout {
+  shapes: Shape[];
+  // The screen's box, in the same coordinates (landscape: controls sit
+  // around it; portrait: above the controls).
+  screen: { x: number; y: number; w: number; h: number };
+}
+
+// layout places the controls for an area of w×h CSS pixels. Portrait: the
+// screen on top, controls below, like a GBA SP. Landscape: the screen in
+// the middle, controls either side.
+export function layout(w: number, h: number): Layout {
+  if (w > h) {
+    const s = Math.min(h / 390, w / 844, 1.4);
+    const screenH = Math.min(h, (w - 2 * 230 * s) / 1.5);
+    const screenW = screenH * 1.5;
+    const screen = { x: (w - screenW) / 2, y: (h - screenH) / 2, w: screenW, h: screenH };
+    const side = (w - screenW) / 2;
+    return {
+      screen,
+      shapes: [
+        {
+          kind: "rect",
+          id: "L",
+          x: 12 * s,
+          y: 10 * s,
+          w: Math.min(side - 24 * s, 150 * s),
+          h: 44 * s,
+        },
+        {
+          kind: "rect",
+          id: "R",
+          x: w - 12 * s - Math.min(side - 24 * s, 150 * s),
+          y: 10 * s,
+          w: Math.min(side - 24 * s, 150 * s),
+          h: 44 * s,
+        },
+        { kind: "dpad", id: "dpad", x: Math.max(side / 2, 82 * s), y: h * 0.56, r: 66 * s },
+        {
+          kind: "round",
+          id: "A",
+          x: w - Math.max(side / 2, 82 * s) + 38 * s,
+          y: h * 0.5,
+          r: 32 * s,
+        },
+        {
+          kind: "round",
+          id: "B",
+          x: w - Math.max(side / 2, 82 * s) - 38 * s,
+          y: h * 0.5 + 34 * s,
+          r: 32 * s,
+        },
+        { kind: "rect", id: "Select", x: side / 2 - 36 * s, y: h - 46 * s, w: 72 * s, h: 28 * s },
+        {
+          kind: "rect",
+          id: "Start",
+          x: w - side / 2 - 36 * s,
+          y: h - 46 * s,
+          w: 72 * s,
+          h: 28 * s,
+        },
+        { kind: "rect", id: "Menu", x: w / 2 - 30 * s, y: h - 30 * s, w: 60 * s, h: 26 * s },
+      ],
+    };
+  }
+  const screenW = w;
+  const screenH = w / 1.5;
+  const top = screenH;
+  const rest = h - top;
+  const s = Math.min(w / 390, rest / 440, 1.4);
+  const cy = top + Math.min(rest * 0.42, 190 * s);
+  return {
+    screen: { x: 0, y: 0, w: screenW, h: screenH },
+    shapes: [
+      { kind: "rect", id: "L", x: 14 * s, y: top + 14 * s, w: 110 * s, h: 40 * s },
+      { kind: "rect", id: "R", x: w - 124 * s, y: top + 14 * s, w: 110 * s, h: 40 * s },
+      { kind: "rect", id: "Menu", x: w / 2 - 30 * s, y: top + 20 * s, w: 60 * s, h: 28 * s },
+      { kind: "dpad", id: "dpad", x: 96 * s, y: cy, r: 72 * s },
+      { kind: "round", id: "A", x: w - 54 * s, y: cy - 22 * s, r: 34 * s },
+      { kind: "round", id: "B", x: w - 136 * s, y: cy + 16 * s, r: 34 * s },
+      {
+        kind: "rect",
+        id: "Select",
+        x: w / 2 - 82 * s,
+        y: Math.min(h - 58 * s, cy + 150 * s),
+        w: 70 * s,
+        h: 28 * s,
+      },
+      {
+        kind: "rect",
+        id: "Start",
+        x: w / 2 + 12 * s,
+        y: Math.min(h - 58 * s, cy + 150 * s),
+        w: 70 * s,
+        h: 28 * s,
+      },
+    ],
+  };
+}
+
+// How much bigger hit zones are than the drawn controls.
+const ROUND_HIT = 1.4;
+const DPAD_HIT = 1.35;
+const RECT_PAD = 12;
+// The d-pad's centre presses nothing.
+const DEAD = 0.18;
+
+// dpadKeys maps a touch on the d-pad to directions. Cardinals get 60° and
+// diagonals 30°, so walking a grid in Pokémon doesn't slip diagonally.
+export function dpadKeys(dx: number, dy: number, r: number): Key[] {
+  const dist = Math.hypot(dx, dy);
+  if (dist < r * DEAD) return [];
+  // 0° = right, counter-clockwise, screen y pointing down.
+  const deg = ((Math.atan2(-dy, dx) * 180) / Math.PI + 360) % 360;
+  const sectors: [number, Key[]][] = [
+    [30, ["Right"]],
+    [60, ["Up", "Right"]],
+    [120, ["Up"]],
+    [150, ["Up", "Left"]],
+    [210, ["Left"]],
+    [240, ["Down", "Left"]],
+    [300, ["Down"]],
+    [330, ["Down", "Right"]],
+    [360, ["Right"]],
+  ];
+  for (const [end, keys] of sectors) if (deg < end) return keys;
+  return ["Right"];
+}
+
+// hit returns what one touch at (x, y) presses: the closest control whose
+// hit zone holds it. Between A and B, both.
+export function hit(shapes: Shape[], x: number, y: number): Press[] {
+  let best: Press[] = [];
+  let bestDist = Infinity;
+  const rounds: { id: Key; d: number; r: number }[] = [];
+  for (const s of shapes) {
+    if (s.kind === "rect") {
+      const dx = Math.max(s.x - x, 0, x - (s.x + s.w));
+      const dy = Math.max(s.y - y, 0, y - (s.y + s.h));
+      const d = Math.hypot(dx, dy);
+      if (d <= RECT_PAD && d < bestDist) {
+        best = [s.id];
+        bestDist = d;
+      }
+      continue;
+    }
+    const d = Math.hypot(x - s.x, y - s.y);
+    if (s.kind === "dpad") {
+      if (d <= s.r * DPAD_HIT && d - s.r < bestDist) {
+        best = dpadKeys(x - s.x, y - s.y, s.r);
+        bestDist = Math.max(0, d - s.r);
+      }
+      continue;
+    }
+    if (d <= s.r * ROUND_HIT) rounds.push({ id: s.id as Key, d, r: s.r });
+  }
+  if (rounds.length) {
+    rounds.sort((a, b) => a.d - b.d);
+    const [first, second] = rounds;
+    const edge = Math.max(0, first.d - first.r);
+    if (edge <= bestDist) {
+      // A thumb resting across both A and B presses both.
+      if (second && second.d - first.d < first.r * 0.35) return [first.id, second.id];
+      return [first.id];
+    }
+  }
+  return best;
+}
+
+// pressed is everything held by all touches together.
+export function pressed(shapes: Shape[], touches: Iterable<{ x: number; y: number }>): Set<Press> {
+  const out = new Set<Press>();
+  for (const t of touches) for (const p of hit(shapes, t.x, t.y)) out.add(p);
+  return out;
+}
