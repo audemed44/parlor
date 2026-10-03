@@ -15,13 +15,14 @@ the saves.
   moved ROM keeps its saves. Each game has its own notes.
 - **Touch controls**: an installable home-screen app with no browser bars,
   zooming or scrolling. Portrait puts the screen on top and the controls
-  below, like a GBA SP; landscape puts the controls either side. Every
+  below, like a GBA SP; in landscape the game fills the screen's height and
+  see-through controls sit over it. Every
   finger is tracked, so you can hold a direction while pressing A, slide
   from one button to the next, or press A and B together. Hit zones are
   bigger than the buttons drawn, and the d-pad gives straight directions
   more room than diagonals, so walking a grid doesn't slip.
 - **Keyboard** on desktop: arrows, X/Z for A/B, A/S for L/R, Enter and
-  Backspace for Start and Select, Esc for the menu.
+  Backspace for Start and Select, F for fast forward, Esc for the menu.
 - **Saves on the server**: whenever the game saves, the save goes to the
   server within a second. It's also sent when the app goes to the
   background, since iOS may close it there. With no connection, saves wait
@@ -37,8 +38,10 @@ the saves.
   import folder (RomM's assets, copied RetroDECK saves), matches them to
   games by name (`Pokemon Heart and Soul.srm` → `Pokémon Heart and Soul
   (v2.0.4).gba`), and adds them to the history dated by the file.
-- Fast forward (3×) and mute in the in-game menu. The screen stays awake
-  while you play.
+- **Fast forward**: a ▶▶ toggle next to the menu button (F on a keyboard,
+  or from the menu). It runs at 2× by default; choose 2×, 3×, 4×, 6× or 8×
+  in Settings, which apply to every device.
+- Mute in the in-game menu. The screen stays awake while you play.
 
 <img src="docs/parlor-phone.png" alt="Playing in portrait on a phone, and the save conflict prompt" width="600">
 

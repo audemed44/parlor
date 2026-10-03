@@ -1,21 +1,27 @@
 import { useEffect, useState } from "preact/hooks";
-import { ArrowUpRight, FileDown, LogOut } from "lucide-preact";
+import { ArrowUpRight, FileDown, LogOut, Settings as SettingsIcon } from "lucide-preact";
 import { api } from "./api";
 import { GameDetail } from "./components/GameDetail";
 import { ImportPage } from "./components/ImportPage";
 import { Library } from "./components/Library";
 import { Login } from "./components/Login";
 import { Player } from "./components/Player";
+import { SettingsPage } from "./components/SettingsPage";
 import { ErrorNote } from "./components/ui";
 import type { Config, Game } from "./types";
 
-// Routes live in the URL hash: #/, #/game/3, #/play/3, #/import.
-type Route = { page: "library" } | { page: "game" | "play"; id: number } | { page: "import" };
+// Routes live in the URL hash: #/, #/game/3, #/play/3, #/import, #/settings.
+type Route =
+  | { page: "library" }
+  | { page: "game" | "play"; id: number }
+  | { page: "import" }
+  | { page: "settings" };
 
 export function route(hash: string): Route {
   const m = hash.match(/^#\/(game|play)\/(\d+)$/);
   if (m) return { page: m[1] as "game" | "play", id: Number(m[2]) };
   if (hash === "#/import") return { page: "import" };
+  if (hash === "#/settings") return { page: "settings" };
   return { page: "library" };
 }
 
@@ -97,6 +103,9 @@ export function App() {
             <FileDown size={17} />
           </a>
         )}
+        <a class="icon-btn" href="#/settings" title="Settings">
+          <SettingsIcon size={17} />
+        </a>
         <button class="icon-btn" title="Sign out" onClick={logout}>
           <LogOut size={17} />
         </button>
@@ -104,6 +113,8 @@ export function App() {
       <ErrorNote error={error} />
       {at.page === "game" ? (
         <GameDetail key={at.id} id={at.id} onChange={refresh} />
+      ) : at.page === "settings" ? (
+        <SettingsPage />
       ) : at.page === "import" ? (
         <ImportPage games={games} onChange={refresh} />
       ) : (

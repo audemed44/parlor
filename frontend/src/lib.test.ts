@@ -7,6 +7,7 @@ describe("route", () => {
     expect(route("#/play/12")).toEqual({ page: "play", id: 12 });
     expect(route("#/game/3")).toEqual({ page: "game", id: 3 });
     expect(route("#/import")).toEqual({ page: "import" });
+    expect(route("#/settings")).toEqual({ page: "settings" });
     expect(route("")).toEqual({ page: "library" });
     expect(route("#/play/x")).toEqual({ page: "library" });
   });

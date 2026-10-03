@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { pressed, type Key, type Layout, type Press } from "../controls";
+import { pressed, type Action, type Key, type Layout, type Press } from "../controls";
 
 // Controls draws the touch controls and turns touches into button presses.
 // Every finger is tracked, so you can hold a direction and press A, and
@@ -7,11 +7,17 @@ import { pressed, type Key, type Layout, type Press } from "../controls";
 export function Controls({
   layout,
   onKey,
-  onMenu,
+  onAction,
+  toggled,
+  fastLabel,
 }: {
   layout: Layout;
   onKey: (key: Key, down: boolean) => void;
-  onMenu: () => void;
+  // Menu and Fast act once per press, not while held.
+  onAction: (action: Action) => void;
+  // Actions shown as switched on (fast forward).
+  toggled: Set<Action>;
+  fastLabel: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const touches = useRef(new Map<number, { x: number; y: number }>());
@@ -19,17 +25,17 @@ export function Controls({
   const [lit, setLit] = useState<Set<Press>>(new Set());
   const shapes = useRef(layout.shapes);
   shapes.current = layout.shapes;
-  const handlers = useRef({ onKey, onMenu });
-  handlers.current = { onKey, onMenu };
+  const handlers = useRef({ onKey, onAction });
+  handlers.current = { onKey, onAction };
 
   function update() {
     const now = pressed(shapes.current, touches.current.values());
     for (const p of held.current) {
-      if (!now.has(p) && p !== "Menu") handlers.current.onKey(p, false);
+      if (!now.has(p) && !isAction(p)) handlers.current.onKey(p, false);
     }
     for (const p of now) {
       if (held.current.has(p)) continue;
-      if (p === "Menu") handlers.current.onMenu();
+      if (isAction(p)) handlers.current.onAction(p);
       else handlers.current.onKey(p, true);
     }
     held.current = now;
@@ -86,7 +92,7 @@ export function Controls({
     };
   }, []);
 
-  const on = (id: Press) => (lit.has(id) ? " on" : "");
+  const on = (id: Press) => (lit.has(id) || toggled.has(id as Action) ? " on" : "");
   return (
     <div class={"controls" + (layout.landscape ? " over" : "")} ref={ref} data-testid="controls">
       {layout.shapes.map((s) => {
@@ -98,7 +104,7 @@ export function Controls({
               class={`ctl rect ctl-${s.id.toLowerCase()}${on(s.id)}`}
               style={{ left: s.x, top: s.y, width: s.w, height: s.h }}
             >
-              {s.id === "Menu" ? "•••" : s.id}
+              {s.id === "Menu" ? "•••" : s.id === "Fast" ? fastLabel : s.id}
             </div>
           );
         }
@@ -131,4 +137,8 @@ export function Controls({
       })}
     </div>
   );
+}
+
+function isAction(p: Press): p is Action {
+  return p === "Menu" || p === "Fast";
 }

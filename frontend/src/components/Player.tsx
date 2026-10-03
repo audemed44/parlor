@@ -1,6 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { mGBAEmulator } from "@thenick775/mgba-wasm";
-import { ArrowLeft, Gauge, Play, Save as SaveIcon, Volume2, VolumeX } from "lucide-preact";
+import {
+  ArrowLeft,
+  FastForward,
+  Gauge,
+  Play,
+  Save as SaveIcon,
+  Volume2,
+  VolumeX,
+} from "lucide-preact";
 import { api, bytes } from "../api";
 import { layout as placeControls, type Key, type Layout } from "../controls";
 import { Controls } from "./Controls";
@@ -9,7 +17,7 @@ import { ago, deviceName } from "../lib";
 import { pending, type Pending } from "../pending";
 import { loadROM } from "../roms";
 import { digest, send } from "../sync";
-import type { GameDetail, Save } from "../types";
+import type { GameDetail, Save, Settings } from "../types";
 
 type Phase = "loading" | "ready" | "playing" | "error";
 
@@ -50,6 +58,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   const [menu, setMenu] = useState(false);
   const [clash, setClash] = useState<Clash | null>(null);
   const [fast, setFast] = useState(false);
+  const [speed, setSpeed] = useState(2);
   const [muted, setMuted] = useState(false);
   const [area, setArea] = useState<Layout | null>(null);
 
@@ -88,6 +97,9 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   useEffect(() => {
     let live = true;
     const boot = emulator();
+    api<Settings>("settings")
+      .then((s) => live && setSpeed(s.fast_forward))
+      .catch(() => {});
     (async () => {
       const g = await api<GameDetail>(`games/${id}`);
       if (!live) return;
@@ -267,14 +279,16 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     else if (phase === "playing") resume();
   }, [menu, clash]);
 
-  // Desktop: Escape opens the menu.
+  // Desktop: Escape opens the menu, F toggles fast forward.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && phase === "playing" && !clash) setMenu((m) => !m);
+      if (phase !== "playing" || clash || e.repeat) return;
+      if (e.key === "Escape") setMenu((m) => !m);
+      else if ((e.key === "f" || e.key === "F") && !menu) toggleFast();
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [phase, clash]);
+  }, [phase, clash, menu, fast, speed]);
 
   async function quit() {
     setMenu(false);
@@ -347,7 +361,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
 
   function toggleFast() {
     const next = !fast;
-    core.current?.setFastForwardMultiplier(next ? 3 : 1);
+    core.current?.setFastForwardMultiplier(next ? speed : 1);
     setFast(next);
   }
   function toggleSound() {
@@ -367,13 +381,25 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
             style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
           />
         )}
-        {area && touch && <Controls layout={area} onKey={key} onMenu={() => setMenu(true)} />}
+        {area && touch && (
+          <Controls
+            layout={area}
+            onKey={key}
+            onAction={(a) => (a === "Menu" ? setMenu(true) : toggleFast())}
+            toggled={fast ? new Set(["Fast"]) : new Set()}
+            fastLabel={`▶▶ ${speed}×`}
+          />
+        )}
         {!touch && phase === "playing" && (
           <div class="desk-bar">
             <span class="eyebrow">{game?.title}</span>
             <span class="hint mono">
-              Arrows · X A · Z B · A L · S R · Enter Start · Backspace Select · Esc menu
+              Arrows · X A · Z B · A L · S R · Enter Start · Backspace Select · F fast forward · Esc
+              menu
             </span>
+            <button class={"btn" + (fast ? " active" : "")} onClick={toggleFast}>
+              <FastForward size={15} /> {speed}×
+            </button>
             <button class="btn" onClick={() => setMenu(true)}>
               Menu
             </button>
@@ -427,7 +453,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
             </button>
             <div class="menu-row">
               <button class={"btn" + (fast ? " active" : "")} onClick={guard(toggleFast)}>
-                <Gauge size={16} /> {fast ? "Fast forward on" : "Fast forward"}
+                <Gauge size={16} /> {fast ? `Fast forward ${speed}× on` : `Fast forward ${speed}×`}
               </button>
               <button class="btn" onClick={guard(toggleSound)}>
                 {muted ? <VolumeX size={16} /> : <Volume2 size={16} />} {muted ? "Muted" : "Sound"}

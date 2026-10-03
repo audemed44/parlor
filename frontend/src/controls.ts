@@ -3,8 +3,9 @@
 // you see is what you press. Hit zones are larger than the drawn controls.
 
 export type Key = "A" | "B" | "L" | "R" | "Start" | "Select" | "Up" | "Down" | "Left" | "Right";
-// "Menu" isn't a GBA button: it opens Parlor's menu.
-export type Press = Key | "Menu";
+// Not GBA buttons: "Menu" opens Parlor's menu, "Fast" toggles fast forward.
+export type Action = "Menu" | "Fast";
+export type Press = Key | Action;
 
 export interface Circle {
   kind: "dpad" | "round";
@@ -49,7 +50,8 @@ export function layout(w: number, h: number): Layout {
       shapes: [
         { kind: "rect", id: "L", x: 10 * s, y: 10 * s, w: 120 * s, h: 40 * s },
         { kind: "rect", id: "R", x: w - 130 * s, y: 10 * s, w: 120 * s, h: 40 * s },
-        { kind: "rect", id: "Menu", x: w / 2 - 28 * s, y: 6 * s, w: 56 * s, h: 24 * s },
+        { kind: "rect", id: "Menu", x: w / 2 - 62 * s, y: 6 * s, w: 56 * s, h: 26 * s },
+        { kind: "rect", id: "Fast", x: w / 2 + 6 * s, y: 6 * s, w: 56 * s, h: 26 * s },
         { kind: "dpad", id: "dpad", x: pad, y: h * 0.58, r: 66 * s },
         { kind: "round", id: "A", x: w - pad + 36 * s, y: h * 0.52, r: 32 * s },
         { kind: "round", id: "B", x: w - pad - 38 * s, y: h * 0.52 + 36 * s, r: 32 * s },
@@ -69,7 +71,8 @@ export function layout(w: number, h: number): Layout {
     shapes: [
       { kind: "rect", id: "L", x: 14 * s, y: top + 14 * s, w: 110 * s, h: 40 * s },
       { kind: "rect", id: "R", x: w - 124 * s, y: top + 14 * s, w: 110 * s, h: 40 * s },
-      { kind: "rect", id: "Menu", x: w / 2 - 30 * s, y: top + 20 * s, w: 60 * s, h: 28 * s },
+      { kind: "rect", id: "Menu", x: w / 2 - 60 * s, y: top + 20 * s, w: 52 * s, h: 28 * s },
+      { kind: "rect", id: "Fast", x: w / 2 + 8 * s, y: top + 20 * s, w: 52 * s, h: 28 * s },
       { kind: "dpad", id: "dpad", x: 96 * s, y: cy, r: 72 * s },
       { kind: "round", id: "A", x: w - 54 * s, y: cy - 22 * s, r: 34 * s },
       { kind: "round", id: "B", x: w - 136 * s, y: cy + 16 * s, r: 34 * s },

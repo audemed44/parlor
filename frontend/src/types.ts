@@ -41,6 +41,12 @@ export interface Config {
   foyer_url: string;
 }
 
+export interface Settings {
+  fast_forward: number;
+}
+
+export const fastForwardSpeeds = [2, 3, 4, 6, 8];
+
 export interface ScanResult {
   added: number;
   updated: number;

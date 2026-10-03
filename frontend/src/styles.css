@@ -537,6 +537,27 @@ footer {
   border-left: 2px solid var(--warn);
 }
 
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+}
+.segmented button {
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-2);
+}
+.segmented button + button {
+  border-left: 1px solid var(--line);
+}
+.segmented button.on {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ── Game ──────────────────────────────────────────────────────────────── */
 .facts {
   display: flex;
@@ -658,6 +679,11 @@ footer {
 .ctl-l,
 .ctl-r {
   font-size: 13px;
+}
+.ctl-fast {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 .ctl-menu {
   border-color: transparent;
