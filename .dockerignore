@@ -1,0 +1,9 @@
+frontend/node_modules
+frontend/public/core
+web/dist
+.git
+.env
+.env.*
+data
+docs
+/parlor

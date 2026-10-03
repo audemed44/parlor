@@ -1,0 +1,27 @@
+# Parlor serves your GBA ROMs to the browser, where mGBA runs, and keeps
+# every game's save on the server. Put it in your main stack.
+services:
+  parlor:
+    image: ghcr.io/audemed44/parlor:latest
+    container_name: parlor
+    restart: unless-stopped
+    environment:
+      # openssl rand -hex 32; what you sign in with.
+      - PARLOR_TOKEN=${PARLOR_TOKEN}
+      - TZ=Asia/Kolkata # which day a save belongs to, for the daily history
+      # Saves kept per game: this many recent ones, plus one a day for 30 days.
+      # - PARLOR_SAVE_VERSIONS=20
+      # A folder of saves to import once (RomM's assets, copied emulator
+      # saves). Leave out when you're done.
+      - PARLOR_IMPORT_DIR=/import
+      # The FOYER link in the header.
+      # - HOMEPAGE_URL=https://home.example.com
+      # Session cookies need HTTPS. Set false only for plain-HTTP testing.
+      # - PARLOR_SECURE_COOKIES=false
+    volumes:
+      - ./romm/library/gba/roms:/roms:ro # your .gba files, read-only
+      - ./parlor:/data # the database and every save version; back it up
+      - ./romm/assets:/import:ro
+    ports:
+      - "8088:8080"
+    mem_limit: 64m
