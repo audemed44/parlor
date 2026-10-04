@@ -1,6 +1,8 @@
 package store
 
 import (
+	"bytes"
+	"compress/gzip"
 	"errors"
 	"os"
 	"path/filepath"
@@ -171,9 +173,15 @@ func TestImport(t *testing.T) {
 	old := time.Date(2025, 11, 24, 12, 0, 0, 0, time.UTC)
 	os.Chtimes(filepath.Join(imports, "retrodeck-saves/roms/Pokemon Heart and Soul.srm"), old, old)
 
-	cands, err := s.Candidates(imports)
-	if err != nil || len(cands) != 2 {
-		t.Fatalf("candidates: %+v %v", cands, err)
+	all, err := s.Candidates(imports)
+	if err != nil || len(all) != 3 {
+		t.Fatalf("candidates: %+v %v", all, err)
+	}
+	var cands []Candidate
+	for _, c := range all {
+		if c.Kind == "save" {
+			cands = append(cands, c)
+		}
 	}
 	titles, _ := s.Titles()
 	for _, c := range cands {
@@ -189,9 +197,13 @@ func TestImport(t *testing.T) {
 		}
 	}
 	// Dated by the file, so the deck save is from 2025.
-	cands, _ = s.Candidates(imports)
-	for _, c := range cands {
-		if c.Imported == 0 {
+	all, _ = s.Candidates(imports)
+	cands = cands[:0]
+	for _, c := range all {
+		if c.Kind == "save" {
+			cands = append(cands, c)
+		}
+		if c.Kind == "save" && c.Imported == 0 {
 			t.Fatalf("not marked imported: %+v", c)
 		}
 	}
@@ -221,5 +233,76 @@ func TestPlayTime(t *testing.T) {
 	}
 	if err := s.AddPlay(2, 1); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
+	}
+}
+
+// fakeState is shaped like a bare mGBA GBA state (version 9), as RomM's
+// web player stores them.
+func fakeState(fill byte) []byte {
+	data := bytes.Repeat([]byte{fill}, 0x61000)
+	copy(data, []byte{0x09, 0, 0, 0x01})
+	return data
+}
+
+func TestStates(t *testing.T) {
+	s := open(t)
+	root, imports := t.TempDir(), t.TempDir()
+	write(t, root, "Pokémon Heart and Soul (v2.0.4).gba", "hns")
+	s.Scan(root)
+	if _, err := s.PutState(1, 1, NewState{Data: []byte("not a state")}); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("junk: %v", err)
+	}
+	if _, err := s.PutState(1, QuickSlots+1, NewState{Data: fakeState(1)}); !errors.Is(err, ErrInvalidSlot) {
+		t.Fatalf("slot: %v", err)
+	}
+	png := append([]byte("\x89PNG\r\n\x1a\n"), "image with a state chunk"...)
+	if _, err := s.PutState(1, AutoSlot, NewState{Data: png, Device: "iPhone"}); err != nil {
+		t.Fatal(err)
+	}
+	// Compressed states are stored unwrapped.
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	zw.Write(fakeState(2))
+	zw.Close()
+	v, err := s.PutState(1, 2, NewState{Data: gz.Bytes(), Device: "Mac"})
+	if err != nil || v.Size != 0x61000 || v.Image {
+		t.Fatalf("gzip: %+v %v", v, err)
+	}
+	// Saving to a slot again replaces it.
+	if v, err = s.PutState(1, 2, NewState{Data: fakeState(3), Device: "iPhone"}); err != nil || v.Device != "iPhone" {
+		t.Fatalf("replace: %+v %v", v, err)
+	}
+	data, _ := s.StateData(v)
+	states, _ := s.States(1)
+	if len(states) != 2 || !states[0].Image || states[1].Slot != 2 || data[0x100] != 3 {
+		t.Fatalf("states: %+v", states)
+	}
+	// A state that waited offline doesn't replace a newer one.
+	auto, _ := s.StateIn(1, AutoSlot)
+	stale := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	if v, err = s.PutState(1, AutoSlot, NewState{Data: fakeState(5), Created: stale, IfNewer: true}); err != nil || v.SHA256 != auto.SHA256 {
+		t.Fatalf("stale: %+v %v", v, err)
+	}
+	if v, err = s.PutState(1, AutoSlot, NewState{Data: fakeState(5), Created: s.Now(), IfNewer: true}); err != nil || v.SHA256 == auto.SHA256 {
+		t.Fatalf("newer: %+v %v", v, err)
+	}
+	if err = s.DeleteState(1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.StateIn(1, 2); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted: %v", err)
+	}
+
+	// RomM's states import into a slot, dated by the file.
+	write(t, imports, "users/1/states/gba/22/mgba/Pokemon Heart and Soul [2026-09-13 19-00-02].state", string(fakeState(4)))
+	cands, _ := s.Candidates(imports)
+	if len(cands) != 1 || cands[0].Kind != "state" || cands[0].Suggested != 1 {
+		t.Fatalf("candidates: %+v", cands)
+	}
+	if v, err = s.ImportState(imports, cands[0].Path, 1, 3); err != nil || v.Slot != 3 || v.Device != "Import" {
+		t.Fatalf("import: %+v %v", v, err)
+	}
+	if cands, _ = s.Candidates(imports); cands[0].Imported != 1 {
+		t.Fatalf("not marked imported: %+v", cands)
 	}
 }

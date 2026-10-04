@@ -9,6 +9,21 @@ export interface Save {
   note: string;
 }
 
+export interface State {
+  id: number;
+  game_id: number;
+  // 0 is the state taken when you left the game; 1 to 4 are quick slots.
+  slot: number;
+  created: string;
+  size: number;
+  sha256: string;
+  device: string;
+  note: string;
+  image: boolean;
+}
+
+export const quickSlots = [1, 2, 3, 4];
+
 export interface Game {
   id: number;
   path: string;
@@ -25,10 +40,12 @@ export interface Game {
 
 export interface GameDetail extends Game {
   saves: Save[];
+  states: State[];
 }
 
 export interface Candidate {
   path: string;
+  kind: "save" | "state";
   size: number;
   modified: string;
   sha256: string;

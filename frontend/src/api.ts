@@ -17,9 +17,9 @@ async function check(res: Response, path: string): Promise<Response> {
   throw new HTTPError(data.error || "Request failed", res.status, data);
 }
 
-export async function api<T>(path: string, body?: unknown): Promise<T> {
+export async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
   const res = await fetch("/api/" + path, {
-    method: body === undefined ? "GET" : "POST",
+    method: method ?? (body === undefined ? "GET" : "POST"),
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

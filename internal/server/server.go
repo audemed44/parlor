@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/audemed44/parlor/internal/store"
 )
@@ -45,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 	s.authRoutes(mux)
 	s.gameRoutes(mux)
 	s.saveRoutes(mux)
+	s.stateRoutes(mux)
 	s.importRoutes(mux)
 	s.settingsRoutes(mux)
 	if s.Files != nil {
@@ -138,6 +140,12 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// modTime reads a stored timestamp, for Last-Modified.
+func modTime(stamp string) time.Time {
+	t, _ := time.Parse("2006-01-02T15:04:05.000Z", stamp)
+	return t
 }
 
 // pathID is the {id} path value, or 0 when it isn't a positive integer.

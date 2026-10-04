@@ -9,15 +9,25 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-preact";
-import { api, bytes } from "../api";
+import { api, bytes, putBytes } from "../api";
 import { layout as placeControls, type Key, type Layout } from "../controls";
 import { Controls } from "./Controls";
-import { emulator, replaceSave, resumeAudio, screen, start, stop } from "../emulator";
+import {
+  afterStart,
+  captureState,
+  emulator,
+  replaceSave,
+  restoreState,
+  resumeAudio,
+  screen,
+  start,
+  stop,
+} from "../emulator";
 import { ago, deviceName } from "../lib";
-import { pending, type Pending } from "../pending";
+import { pending, pendingStates, type Pending } from "../pending";
 import { loadROM } from "../roms";
-import { digest, send } from "../sync";
-import type { GameDetail, Save, Settings } from "../types";
+import { digest, send, sendState } from "../sync";
+import { quickSlots, type GameDetail, type Save, type Settings, type State } from "../types";
 
 type Phase = "loading" | "ready" | "playing" | "error";
 
@@ -61,12 +71,16 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   const [speed, setSpeed] = useState(2);
   const [muted, setMuted] = useState(false);
   const [area, setArea] = useState<Layout | null>(null);
+  const [states, setStates] = useState<State[]>([]);
+  const [slotNote, setSlotNote] = useState("");
 
   const areaRef = useRef<HTMLDivElement>(null);
   const holder = useRef<HTMLDivElement>(null);
   const core = useRef<mGBAEmulator | null>(null);
   const rom = useRef<Uint8Array | null>(null);
   const initial = useRef<Uint8Array | null>(null);
+  // The state taken when this game was last left, on any device.
+  const resumeFrom = useRef<Uint8Array | null>(null);
   // The server's save version the running game descends from.
   const base = useRef(0);
   const lastHash = useRef("");
@@ -112,6 +126,16 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
         if (!r.ok && "conflict" in r) {
           setClash({ mine: waiting, theirs: r.conflict, beforeStart: true });
         }
+      }
+      // A state taken when leaving that never reached the server goes
+      // first, so it can be carried on from.
+      const left = await pendingStates.get(id).catch(() => undefined);
+      if (left) await sendState(left);
+      const st = await api<State[]>(`games/${id}/states`);
+      if (!live) return;
+      setStates(st);
+      if (st.some((v) => v.slot === 0)) {
+        resumeFrom.current = (await bytes(`games/${id}/states/0`))?.data ?? null;
       }
       rom.current = await romLoad;
       core.current = await boot;
@@ -207,14 +231,25 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     });
   }
 
-  function begin() {
+  // begin starts the game, from where it was left when carryOn is set.
+  function begin(carryOn: boolean) {
     const m = core.current;
-    if (!m || !rom.current || clash) return;
+    if (!m || !rom.current || clash || !game) return;
     try {
       for (const [sdl, key] of keyboard) m.bindKey(sdl, key);
       start(m, id, rom.current, initial.current);
       listen(m);
+      const state = carryOn ? resumeFrom.current : null;
+      if (state) {
+        afterStart(m, () => {
+          if (!restoreState(m, id, 0, state)) {
+            setSlotNote("Couldn't load where you left off; started from the in-game save.");
+          }
+          if (!paused.current) m.resumeGame();
+        });
+      }
       rom.current = null;
+      resumeFrom.current = null;
       setPhase("playing");
     } catch (e) {
       setError((e as Error).message);
@@ -237,6 +272,8 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
       if (document.hidden) {
         queue();
         core.current?.pauseGame();
+        // iOS may close the app from here: keep the place.
+        keepPlace();
       } else {
         if (!paused.current) core.current?.resumeGame();
         if (core.current) resumeAudio(core.current);
@@ -297,10 +334,57 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
       await queue();
       // Choose which save to keep before leaving.
       if (conflicted.current) return;
+      setStatus({ kind: "saving" });
+      await keepPlace();
       m.addCoreCallbacks({ saveDataUpdatedCallback: null });
       stop(m);
     }
     onExit();
+  }
+
+  // keepPlace takes a state when leaving the game, so it carries on from
+  // there next time, on any device. It waits on the device until sent.
+  async function keepPlace() {
+    const m = core.current;
+    if (!m || conflicted.current) return;
+    const data = captureState(m, id, 0);
+    if (!data) return;
+    const p = { gameId: id, data: data.slice(), at: new Date().toISOString() };
+    await pendingStates.put(p).catch(() => {});
+    await sendState(p);
+  }
+
+  async function saveSlot(slot: number) {
+    const m = core.current;
+    if (!m) return;
+    const data = captureState(m, id, slot);
+    if (!data) {
+      setSlotNote("mGBA couldn't take a save state.");
+      return;
+    }
+    setSlotNote("Saving…");
+    try {
+      const q = new URLSearchParams({ device: deviceName() });
+      const v = await putBytes<State>(`games/${id}/states/${slot}?${q}`, data.slice());
+      setStates((list) => [...list.filter((x) => x.slot !== slot), v]);
+      setSlotNote(`Saved to slot ${slot}`);
+    } catch (e) {
+      setSlotNote(`Couldn't save to slot ${slot}: ${(e as Error).message}`);
+    }
+  }
+
+  async function loadSlot(slot: number) {
+    const m = core.current;
+    if (!m) return;
+    setSlotNote("Loading…");
+    try {
+      const got = await bytes(`games/${id}/states/${slot}`);
+      if (!got || !restoreState(m, id, slot, got.data)) throw new Error("mGBA couldn't load it");
+      setSlotNote(`Loaded slot ${slot}`);
+      setMenu(false);
+    } catch (e) {
+      setSlotNote(`Couldn't load slot ${slot}: ${(e as Error).message}`);
+    }
   }
 
   async function keepMine() {
@@ -371,6 +455,9 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   }
 
   const box = area?.screen;
+  const left = states.find((v) => v.slot === 0);
+  const stateImage = (v: State) =>
+    `/api/games/${id}/states/${v.slot}/image?v=${v.sha256.slice(0, 12)}`;
   return (
     <div class={`player ${touch ? "touch" : "desktop"}`}>
       <div class="player-area" ref={areaRef}>
@@ -429,8 +516,28 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
                 </p>
               </>
             )}
-            {phase === "ready" && !clash && (
-              <button class="btn primary big" onClick={begin} autoFocus>
+            {phase === "ready" && !clash && left && (
+              <>
+                {left.image && (
+                  <img class="state-shot" src={stateImage(left)} alt="Where you left off" />
+                )}
+                <button class="btn primary big" onClick={() => begin(true)} autoFocus>
+                  <Play size={18} /> Continue
+                </button>
+                <p class="hint">
+                  You left off here {ago(left.created)}
+                  {left.device ? ` on ${left.device}` : ""}.
+                  {game?.save && game.save.created > left.created
+                    ? ` The in-game save from ${ago(game.save.created)} is newer.`
+                    : ""}
+                </p>
+                <button class="btn" onClick={() => begin(false)}>
+                  {game?.save ? "Start from the in-game save" : "Start a new game"}
+                </button>
+              </>
+            )}
+            {phase === "ready" && !clash && !left && (
+              <button class="btn primary big" onClick={() => begin(false)} autoFocus>
                 <Play size={18} /> Tap to play
               </button>
             )}
@@ -451,6 +558,33 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
             <button class="btn primary big" onClick={guard(() => setMenu(false))}>
               <Play size={18} /> Resume
             </button>
+            <div class="slots">
+              {quickSlots.map((n) => {
+                const v = states.find((x) => x.slot === n);
+                return (
+                  <div class="slot" key={n}>
+                    <div class="slot-shot">
+                      {v?.image ? (
+                        <img src={stateImage(v)} alt="" />
+                      ) : (
+                        <span>{v ? "" : "Empty"}</span>
+                      )}
+                      <span class="slot-n">{n}</span>
+                    </div>
+                    <span class="hint">{v ? ago(v.created) : "—"}</span>
+                    <div class="slot-actions">
+                      <button class="btn small" onClick={guard(() => saveSlot(n))}>
+                        Save
+                      </button>
+                      <button class="btn small" disabled={!v} onClick={guard(() => loadSlot(n))}>
+                        Load
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {slotNote && <p class="hint">{slotNote}</p>}
             <div class="menu-row">
               <button class={"btn" + (fast ? " active" : "")} onClick={guard(toggleFast)}>
                 <Gauge size={16} /> {fast ? `Fast forward ${speed}× on` : `Fast forward ${speed}×`}
@@ -460,8 +594,8 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
               </button>
             </div>
             <p class="hint">
-              Parlor saves to the server whenever the game saves. Use the game's own Save menu
-              before you quit.
+              Parlor saves to the server whenever the game saves, and keeps your place when you
+              leave. Save states are snapshots; the game's own save is the one that counts.
             </p>
             <button class="btn" onClick={guard(quit)}>
               <SaveIcon size={16} /> Quit to library

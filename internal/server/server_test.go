@@ -243,6 +243,42 @@ func TestSettings(t *testing.T) {
 	}
 }
 
+func TestStates(t *testing.T) {
+	h := setup(t)
+	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
+	resp, body := h.do("PUT", "/api/games/1/states/0?device=iPhone", png)
+	if resp.StatusCode != 200 {
+		t.Fatalf("put: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ = h.do("PUT", "/api/games/1/states/9", png); resp.StatusCode != 400 {
+		t.Fatalf("slot 9: %d", resp.StatusCode)
+	}
+	if resp, _ = h.do("PUT", "/api/games/1/states/1", []byte("junk")); resp.StatusCode != 400 {
+		t.Fatalf("junk: %d", resp.StatusCode)
+	}
+	resp, body = h.do("GET", "/api/games/1/states/0", nil)
+	if resp.StatusCode != 200 || !bytes.Equal(body, png) || resp.Header.Get("X-State-Id") == "" {
+		t.Fatalf("get: %d", resp.StatusCode)
+	}
+	if resp, _ = h.do("GET", "/api/games/1/states/0/image", nil); resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("image: %d", resp.StatusCode)
+	}
+	var detail struct {
+		States []store.State `json:"states"`
+	}
+	_, body = h.do("GET", "/api/games/1", nil)
+	json.Unmarshal(body, &detail)
+	if len(detail.States) != 1 || detail.States[0].Device != "iPhone" || !detail.States[0].Image {
+		t.Fatalf("detail: %s", body)
+	}
+	if resp, _ = h.do("DELETE", "/api/games/1/states/0", nil); resp.StatusCode != 200 {
+		t.Fatalf("delete: %d", resp.StatusCode)
+	}
+	if resp, _ = h.do("GET", "/api/games/1/states/0", nil); resp.StatusCode != 404 {
+		t.Fatalf("after delete: %d", resp.StatusCode)
+	}
+}
+
 func itoa(n int64) string {
 	b, _ := json.Marshal(n)
 	return string(b)
