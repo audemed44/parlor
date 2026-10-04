@@ -35,6 +35,8 @@ export interface Game {
   last_played: string;
   play_seconds: number;
   notes: string;
+  save_type: string;
+  rtc: "" | "on" | "off";
   save: Save | null;
 }
 
@@ -63,6 +65,17 @@ export interface Settings {
 }
 
 export const fastForwardSpeeds = [2, 3, 4, 6, 8];
+
+// The save types a game can be set to, as mGBA names them.
+export const saveTypes: [string, string][] = [
+  ["", "Detect"],
+  ["SRAM", "SRAM 32 KB"],
+  ["FLASH512", "Flash 64 KB"],
+  ["FLASH1M", "Flash 128 KB"],
+  ["EEPROM512", "EEPROM 512 B"],
+  ["EEPROM", "EEPROM 8 KB"],
+  ["NONE", "No save"],
+];
 
 export interface ScanResult {
   added: number;

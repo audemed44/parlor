@@ -50,6 +50,8 @@ const romPath = (id: number) => `/data/games/parlor-${id}.gba`;
 const savePath = (id: number) => `/data/saves/parlor-${id}.sav`;
 // mGBA names a slot's state after the ROM: <ROM name>.ss<slot>.
 const statePath = (id: number, slot: number) => `/data/states/parlor-${id}.ss${slot}`;
+// mGBA reads per-game overrides from its config file when a game loads.
+const configPath = "/home/web_user/.config/mgba/config.ini";
 const scratch = ["/data/games", "/data/saves", "/data/states"];
 
 function remove(m: mGBAEmulator, path: string) {
@@ -62,12 +64,48 @@ function clear(m: mGBAEmulator) {
   }
 }
 
+// Overrides are what mGBA should use instead of detecting it: the save
+// type (as mGBA names them) and whether the cartridge has a clock.
+export interface Overrides {
+  saveType: string;
+  rtc: "" | "on" | "off";
+}
+
+// gameCode is the four-letter code in the ROM header (BPEE for Emerald),
+// which mGBA keys overrides by; ROM hacks keep their base game's.
+export function gameCode(rom: Uint8Array): string {
+  const code = String.fromCharCode(...rom.subarray(0xac, 0xb0));
+  return /^[A-Z0-9]{4}$/.test(code) ? code : "";
+}
+
+// overrideConfig is the config file that applies overrides to a game.
+export function overrideConfig(code: string, o: Overrides): string {
+  if (!code || (!o.saveType && !o.rtc)) return "";
+  let out = `[override.${code}]\n`;
+  if (o.saveType) out += `savetype=${o.saveType}\n`;
+  if (o.rtc) out += `hardware=${o.rtc === "on" ? 1 : 0}\n`;
+  return out;
+}
+
+function configure(m: mGBAEmulator, rom: Uint8Array, o: Overrides) {
+  const text = overrideConfig(gameCode(rom), o);
+  m.FS.mkdirTree(configPath.slice(0, configPath.lastIndexOf("/")));
+  m.FS.writeFile(configPath, text);
+}
+
 // start loads a game with its save (null for a new game). It's synchronous
 // so it can run inside the tap that starts the game, which iOS requires for
 // sound.
-export function start(m: mGBAEmulator, id: number, rom: Uint8Array, save: Uint8Array | null) {
+export function start(
+  m: mGBAEmulator,
+  id: number,
+  rom: Uint8Array,
+  save: Uint8Array | null,
+  overrides: Overrides,
+) {
   // Only one game's files at a time: ROMs are big, and this is memory.
   clear(m);
+  configure(m, rom, overrides);
   m.FS.writeFile(romPath(id), rom);
   if (save) m.FS.writeFile(savePath(id), save);
   if (!m.loadGame(romPath(id), savePath(id))) throw new Error("mGBA couldn't load this ROM");

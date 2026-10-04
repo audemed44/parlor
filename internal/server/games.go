@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -63,6 +64,32 @@ func (s *Server) gameRoutes(mux *http.ServeMux) {
 			return
 		}
 		jsonResponse(w, map[string]bool{"ok": true})
+	})
+	// Per-game settings: the save type and real-time clock mGBA should use
+	// ("" lets it detect them).
+	mux.HandleFunc("POST /api/games/{id}/settings", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			SaveType string `json:"save_type"`
+			RTC      string `json:"rtc"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		err := s.Store.SetOverrides(pathID(r), body.SaveType, body.RTC)
+		if errors.Is(err, store.ErrInvalidSetting) {
+			failure(w, 400, "Unknown save type or clock setting")
+			return
+		}
+		if err != nil {
+			storeFailure(w, err)
+			return
+		}
+		g, err := s.Store.Game(pathID(r))
+		if err != nil {
+			storeFailure(w, err)
+			return
+		}
+		jsonResponse(w, g)
 	})
 	mux.HandleFunc("POST /api/games/{id}/played", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {

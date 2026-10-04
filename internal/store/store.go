@@ -35,6 +35,28 @@ CREATE TABLE IF NOT EXISTS states(
   created TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL,
   device TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', UNIQUE(game_id, slot));`
 
+// columns are added to tables made by older versions.
+var columns = []struct{ table, name, def string }{
+	{"games", "save_type", "TEXT NOT NULL DEFAULT ''"},
+	{"games", "rtc", "TEXT NOT NULL DEFAULT ''"},
+}
+
+func migrate(db *sql.DB) error {
+	for _, c := range columns {
+		var n int
+		err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?", c.table, c.name).Scan(&n)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err = db.Exec("ALTER TABLE " + c.table + " ADD COLUMN " + c.name + " " + c.def); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // timeFormat is how times are stored: UTC, fixed width, so they sort as text.
 const timeFormat = "2006-01-02T15:04:05.000Z"
 
@@ -70,7 +92,10 @@ func Open(dir string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	if _, err = db.Exec(schema); err != nil {
+	if _, err = db.Exec(schema); err == nil {
+		err = migrate(db)
+	}
+	if err != nil {
 		db.Close()
 		return nil, err
 	}

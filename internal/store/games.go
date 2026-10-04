@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"slices"
 
 	"github.com/audemed44/parlor/internal/library"
 )
@@ -21,7 +22,10 @@ type Game struct {
 	LastPlayed  string `json:"last_played"`
 	PlaySeconds int64  `json:"play_seconds"`
 	Notes       string `json:"notes"`
-	Save        *Save  `json:"save"`
+	// SaveType and RTC override what mGBA detects; "" leaves it to mGBA.
+	SaveType string `json:"save_type"`
+	RTC      string `json:"rtc"`
+	Save     *Save  `json:"save"`
 }
 
 // ScanResult counts what a library scan changed.
@@ -142,11 +146,12 @@ func (s *Store) Scan(root string) (ScanResult, error) {
 	return res, err
 }
 
-const gameColumns = "id, path, title, size, sha1, missing, added, last_played, play_seconds, notes"
+const gameColumns = "id, path, title, size, sha1, missing, added, last_played, play_seconds, notes, save_type, rtc"
 
 func scanGame(row interface{ Scan(...any) error }) (Game, error) {
 	var g Game
-	err := row.Scan(&g.ID, &g.Path, &g.Title, &g.Size, &g.SHA1, &g.Missing, &g.Added, &g.LastPlayed, &g.PlaySeconds, &g.Notes)
+	err := row.Scan(&g.ID, &g.Path, &g.Title, &g.Size, &g.SHA1, &g.Missing, &g.Added, &g.LastPlayed, &g.PlaySeconds, &g.Notes,
+		&g.SaveType, &g.RTC)
 	return g, err
 }
 
@@ -209,6 +214,21 @@ func (s *Store) AddPlay(id, seconds int64) error {
 	seconds = max(0, min(seconds, MaxPlayReport))
 	return s.updateGame("UPDATE games SET play_seconds=play_seconds+?, last_played=? WHERE id=?",
 		seconds, stamp(s.Now()), id)
+}
+
+// SaveTypes are the save types a game can be set to, as mGBA names them.
+var SaveTypes = []string{"SRAM", "FLASH512", "FLASH1M", "EEPROM", "EEPROM512", "NONE"}
+
+// ErrInvalidSetting is returned for a save type or RTC value that isn't one.
+var ErrInvalidSetting = errors.New("unknown save type or clock setting")
+
+// SetOverrides sets a game's save type and real-time clock; "" means
+// mGBA's own detection. rtc is "", "on" or "off".
+func (s *Store) SetOverrides(id int64, saveType, rtc string) error {
+	if saveType != "" && !slices.Contains(SaveTypes, saveType) || rtc != "" && rtc != "on" && rtc != "off" {
+		return ErrInvalidSetting
+	}
+	return s.updateGame("UPDATE games SET save_type=?, rtc=? WHERE id=?", saveType, rtc, id)
 }
 
 func (s *Store) updateGame(query string, args ...any) error {

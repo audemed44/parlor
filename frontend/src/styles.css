@@ -858,6 +858,16 @@ footer {
   border: 1px solid var(--line);
   background: #000;
 }
+.settings-grid {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 260px);
+  align-items: center;
+  gap: 16px 20px;
+  margin-bottom: 16px;
+}
+.settings-grid .segmented button {
+  flex: 1;
+}
 .state-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -981,6 +991,13 @@ footer {
   }
   .row {
     flex-wrap: wrap;
+  }
+  .settings-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .settings-grid .segmented {
+    margin-bottom: 10px;
   }
   .import-row select,
   .import-row select.slot-select {
