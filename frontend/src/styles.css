@@ -656,6 +656,7 @@ footer {
 }
 .ctl {
   position: absolute;
+  opacity: var(--ctl-opacity, 1);
   display: grid;
   place-items: center;
   color: rgb(255 255 255 / 0.75);
@@ -696,7 +697,7 @@ footer {
 /* Landscape: the controls sit on the game, so only outlines show until
    pressed. */
 .controls.over .ctl {
-  opacity: 0.55;
+  opacity: var(--ctl-opacity, 0.55);
 }
 .controls.over .ctl.round,
 .controls.over .ctl.rect,
@@ -708,9 +709,57 @@ footer {
 .controls.over .ctl {
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
 }
-.controls.over .ctl.on,
-.controls.over .dpad:has(.on) {
+.ctl.on,
+.dpad:has(.on),
+.controls.editing .ctl.selected {
   opacity: 1;
+}
+.controls.editing .ctl.selected:not(.dpad),
+.controls.editing .ctl.selected .arm {
+  border-color: var(--accent-hi);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.editor-bar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100% - 24px));
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  background: rgb(0 0 0 / 0.88);
+  border-top: 2px solid #fff;
+  touch-action: manipulation;
+}
+.editor-bar.top {
+  top: max(10px, env(safe-area-inset-top));
+}
+.editor-bar.bottom {
+  bottom: max(10px, env(safe-area-inset-bottom));
+}
+.editor-head {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.editor-range {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.editor-range input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.editor-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 .controls.over .ctl.on,
 .controls.over .dpad .arm.on {

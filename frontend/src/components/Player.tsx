@@ -3,6 +3,7 @@ import type { mGBAEmulator } from "@thenick775/mgba-wasm";
 import {
   ArrowLeft,
   FastForward,
+  LayoutGrid,
   Gauge,
   Play,
   Save as SaveIcon,
@@ -10,7 +11,19 @@ import {
   VolumeX,
 } from "lucide-preact";
 import { api, bytes, putBytes } from "../api";
-import { layout as placeControls, padLayout, type Key, type Layout } from "../controls";
+import {
+  centre,
+  customize,
+  layout as placeControls,
+  loadCustoms,
+  MAX_SCALE,
+  MIN_SCALE,
+  padLayout,
+  saveCustoms,
+  type Customs,
+  type Key,
+  type Layout,
+} from "../controls";
 import { loadBindings, pads, read, type Control } from "../gamepad";
 import { Controls } from "./Controls";
 import {
@@ -77,6 +90,11 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   // A controller is connected: the touch controls step aside.
   const [padOn, setPadOn] = useState(() => pads().length > 0);
   const [toast, setToast] = useState("");
+  // The layout editor: this device's own control layouts.
+  const [editing, setEditing] = useState(false);
+  const [customs, setCustoms] = useState<Customs>(loadCustoms);
+  const [selected, setSelected] = useState<string | null>(null);
+  const size = useRef({ w: 0, h: 0 });
 
   const areaRef = useRef<HTMLDivElement>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -99,14 +117,19 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     const el = areaRef.current!;
     const measure = () => {
       const { width, height } = el.getBoundingClientRect();
+      size.current = { w: width, h: height };
       if (!touch) setArea(desktopLayout(width, height));
-      else setArea(padOn ? padLayout(width, height) : placeControls(width, height));
+      else if (padOn) setArea(padLayout(width, height));
+      else {
+        const custom = customs[width > height ? "landscape" : "portrait"];
+        setArea(customize(placeControls(width, height), custom, width, height));
+      }
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [padOn]);
+  }, [padOn, customs]);
 
   useEffect(() => {
     const update = () => setPadOn(pads().length > 0);
@@ -235,7 +258,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     core.current?.pauseGame();
   }
   function resume() {
-    if (menu || clash) return;
+    if (menu || clash || editing) return;
     paused.current = false;
     core.current?.resumeGame();
     if (core.current) resumeAudio(core.current);
@@ -334,14 +357,14 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   }, [phase]);
 
   useEffect(() => {
-    if (menu || clash) pause();
+    if (menu || clash || editing) pause();
     else if (phase === "playing") resume();
-  }, [menu, clash]);
+  }, [menu, clash, editing]);
 
   // Controllers are read every frame while the game is up. The newest
   // handlers are kept in a ref, since the loop outlives renders.
-  const latest = useRef({ menu, clash, toggleFast, saveSlot, loadSlot });
-  latest.current = { menu, clash, toggleFast, saveSlot, loadSlot };
+  const latest = useRef({ menu, clash, editing, toggleFast, saveSlot, loadSlot });
+  latest.current = { menu, clash, editing, toggleFast, saveSlot, loadSlot };
   useEffect(() => {
     if (phase !== "playing") return;
     const bindings = loadBindings();
@@ -357,9 +380,9 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
       for (const c of now) {
         if (held.has(c)) continue;
         if (isKey(c)) {
-          if (!ui.menu && !ui.clash) key(c, true);
+          if (!ui.menu && !ui.clash && !ui.editing) key(c, true);
         } else if (c === "Menu") {
-          if (!ui.clash) setMenu((m) => !m);
+          if (!ui.clash && !ui.editing) setMenu((m) => !m);
         } else if (!ui.menu && !ui.clash) {
           if (c === "Fast") ui.toggleFast();
           else if (c === "SaveState") ui.saveSlot(1, true);
@@ -518,6 +541,33 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     setMuted(next);
   }
 
+  // The editor changes the layout for the orientation in use.
+  const orientation = size.current.w > size.current.h ? "landscape" : "portrait";
+  const custom = customs[orientation] ?? { shapes: {} };
+  function changeLayout(next: Customs[typeof orientation]) {
+    const all = { ...customs, [orientation]: next };
+    if (!next) delete all[orientation];
+    saveCustoms(all);
+    setCustoms(all);
+  }
+  function moveControl(id: string, x: number, y: number) {
+    const { w, h } = size.current;
+    const scale = custom.shapes[id]?.scale ?? 1;
+    changeLayout({ ...custom, shapes: { ...custom.shapes, [id]: { x: x / w, y: y / h, scale } } });
+  }
+  function resizeControl(id: string, scale: number) {
+    const s = area?.shapes.find((v) => v.id === id);
+    if (!s) return;
+    const { w, h } = size.current;
+    const c = centre(s);
+    const o = custom.shapes[id] ?? { x: c.x / w, y: c.y / h };
+    changeLayout({ ...custom, shapes: { ...custom.shapes, [id]: { ...o, scale } } });
+  }
+
+  // The editor's bar keeps out of the way of the control being moved.
+  const picked = selected ? area?.shapes.find((v) => v.id === selected) : undefined;
+  const barAtBottom = !!picked && centre(picked).y < size.current.h / 2;
+
   const box = area?.screen;
   const left = states.find((v) => v.slot === 0);
   const stateImage = (v: State) =>
@@ -539,7 +589,67 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
             onAction={(a) => (a === "Menu" ? setMenu(true) : toggleFast())}
             toggled={fast ? new Set(["Fast"]) : new Set()}
             fastLabel={`▶▶ ${speed}×`}
+            editing={editing ? { selected, onSelect: setSelected, onMove: moveControl } : undefined}
           />
+        )}
+        {editing && (
+          <div class={`editor-bar ${barAtBottom ? "bottom" : "top"}`}>
+            <div class="editor-head">
+              <span class="eyebrow">
+                <span class="accent">Layout</span>
+                <span class="slash">/</span>
+                {orientation} · this device
+              </span>
+              <span class="hint">
+                {selected
+                  ? `Drag to move · ${selected === "dpad" ? "D-pad" : selected}`
+                  : "Drag a control to move it"}
+              </span>
+            </div>
+            <label class="editor-range">
+              <span class="eyebrow">Size</span>
+              <input
+                type="range"
+                min={MIN_SCALE}
+                max={MAX_SCALE}
+                step={0.05}
+                disabled={!selected}
+                value={selected ? (custom.shapes[selected]?.scale ?? 1) : 1}
+                onInput={(e) => selected && resizeControl(selected, Number(e.currentTarget.value))}
+              />
+            </label>
+            <label class="editor-range">
+              <span class="eyebrow">Opacity</span>
+              <input
+                type="range"
+                min={0.15}
+                max={1}
+                step={0.05}
+                value={custom.opacity ?? (orientation === "landscape" ? 0.55 : 1)}
+                onInput={(e) => changeLayout({ ...custom, opacity: Number(e.currentTarget.value) })}
+              />
+            </label>
+            <div class="editor-actions">
+              <button
+                class="btn"
+                onClick={() => {
+                  changeLayout(undefined);
+                  setSelected(null);
+                }}
+              >
+                Reset
+              </button>
+              <button
+                class="btn primary"
+                onClick={() => {
+                  setEditing(false);
+                  setSelected(null);
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
         )}
         {!touch && phase === "playing" && (
           <div class="desk-bar">
@@ -657,6 +767,17 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
               <button class="btn" onClick={guard(toggleSound)}>
                 {muted ? <VolumeX size={16} /> : <Volume2 size={16} />} {muted ? "Muted" : "Sound"}
               </button>
+              {touch && !padOn && (
+                <button
+                  class="btn"
+                  onClick={guard(() => {
+                    setMenu(false);
+                    setEditing(true);
+                  })}
+                >
+                  <LayoutGrid size={16} /> Edit layout
+                </button>
+              )}
             </div>
             <p class="hint">
               Parlor saves to the server whenever the game saves, and keeps your place when you

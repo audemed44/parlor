@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { dpadKeys, hit, layout, pressed, type Circle } from "./controls";
+import {
+  centre,
+  customize,
+  dpadKeys,
+  hit,
+  layout,
+  pressed,
+  shapeAt,
+  type Circle,
+} from "./controls";
 
 // An iPhone 15 in portrait, below the status bar.
 const portrait = layout(393, 780);
@@ -88,5 +97,40 @@ describe("layout", () => {
     // Both thumbs' controls overlap the picture.
     expect(dpad.x + dpad.r).toBeGreaterThan(l.screen.x);
     expect(b.x - b.r).toBeLessThan(l.screen.x + l.screen.w);
+  });
+});
+
+describe("custom layouts", () => {
+  it("moves and resizes controls, and keeps them inside", () => {
+    const base = layout(390, 760);
+    const a = base.shapes.find((s) => s.id === "A")! as Circle;
+    const c = customize(
+      base,
+      {
+        opacity: 0.4,
+        shapes: { A: { x: 0.5, y: 0.8, scale: 1.5 }, Start: { x: 1, y: 1, scale: 1 } },
+      },
+      390,
+      760,
+    );
+    const moved = c.shapes.find((s) => s.id === "A")! as Circle;
+    expect(moved.x).toBe(195);
+    expect(moved.y).toBe(608);
+    expect(moved.r).toBe(a.r * 1.5);
+    const start = c.shapes.find((s) => s.id === "Start")!;
+    if (start.kind !== "rect") throw new Error("rect");
+    expect(start.x + start.w).toBe(390);
+    expect(start.y + start.h).toBe(760);
+    expect(c.opacity).toBe(0.4);
+    // Hit-testing follows: the old spot no longer presses A.
+    expect(hit(c.shapes, 195, 608)).toEqual(["A"]);
+    expect(hit(c.shapes, a.x, a.y)).not.toContain("A");
+  });
+  it("picks up the control under a finger", () => {
+    const base = layout(390, 760);
+    const b = base.shapes.find((s) => s.id === "B")! as Circle;
+    expect(shapeAt(base.shapes, b.x, b.y)?.id).toBe("B");
+    expect(shapeAt(base.shapes, 195, 100)).toBeNull();
+    expect(centre(b)).toEqual({ x: b.x, y: b.y });
   });
 });

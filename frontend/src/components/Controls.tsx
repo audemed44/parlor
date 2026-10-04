@@ -1,5 +1,22 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { pressed, type Action, type Key, type Layout, type Press } from "../controls";
+import {
+  centre,
+  pressed,
+  shapeAt,
+  type Action,
+  type Key,
+  type Layout,
+  type Press,
+} from "../controls";
+
+// Editing is the layout editor: touches pick controls up and move them
+// instead of pressing them.
+export interface Editing {
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  // The control's new centre, in the area's pixels.
+  onMove: (id: string, x: number, y: number) => void;
+}
 
 // Controls draws the touch controls and turns touches into button presses.
 // Every finger is tracked, so you can hold a direction and press A, and
@@ -10,6 +27,7 @@ export function Controls({
   onAction,
   toggled,
   fastLabel,
+  editing,
 }: {
   layout: Layout;
   onKey: (key: Key, down: boolean) => void;
@@ -18,6 +36,7 @@ export function Controls({
   // Actions shown as switched on (fast forward).
   toggled: Set<Action>;
   fastLabel: string;
+  editing?: Editing;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const touches = useRef(new Map<number, { x: number; y: number }>());
@@ -25,8 +44,10 @@ export function Controls({
   const [lit, setLit] = useState<Set<Press>>(new Set());
   const shapes = useRef(layout.shapes);
   shapes.current = layout.shapes;
-  const handlers = useRef({ onKey, onAction });
-  handlers.current = { onKey, onAction };
+  const handlers = useRef({ onKey, onAction, editing });
+  handlers.current = { onKey, onAction, editing };
+  // The control being dragged in the editor, and where on it the finger is.
+  const drag = useRef<{ pointer: number; id: string; dx: number; dy: number } | null>(null);
 
   function update() {
     const now = pressed(shapes.current, touches.current.values());
@@ -51,16 +72,35 @@ export function Controls({
     const down = (e: PointerEvent) => {
       e.preventDefault();
       el.setPointerCapture?.(e.pointerId);
+      const ed = handlers.current.editing;
+      if (ed) {
+        const p = point(e);
+        const s = shapeAt(shapes.current, p.x, p.y);
+        ed.onSelect(s?.id ?? null);
+        if (s) {
+          const c = centre(s);
+          drag.current = { pointer: e.pointerId, id: s.id, dx: p.x - c.x, dy: p.y - c.y };
+        }
+        return;
+      }
       touches.current.set(e.pointerId, point(e));
       update();
     };
     const move = (e: PointerEvent) => {
+      const d = drag.current;
+      if (d && d.pointer === e.pointerId) {
+        e.preventDefault();
+        const p = point(e);
+        handlers.current.editing?.onMove(d.id, p.x - d.dx, p.y - d.dy);
+        return;
+      }
       if (!touches.current.has(e.pointerId)) return;
       e.preventDefault();
       touches.current.set(e.pointerId, point(e));
       update();
     };
     const up = (e: PointerEvent) => {
+      if (drag.current?.pointer === e.pointerId) drag.current = null;
       if (!touches.current.delete(e.pointerId)) return;
       update();
     };
@@ -92,9 +132,16 @@ export function Controls({
     };
   }, []);
 
-  const on = (id: Press) => (lit.has(id) || toggled.has(id as Action) ? " on" : "");
+  const on = (id: string) =>
+    (lit.has(id as Press) || toggled.has(id as Action) ? " on" : "") +
+    (editing?.selected === id ? " selected" : "");
   return (
-    <div class={"controls" + (layout.landscape ? " over" : "")} ref={ref} data-testid="controls">
+    <div
+      class={"controls" + (layout.landscape ? " over" : "") + (editing ? " editing" : "")}
+      ref={ref}
+      data-testid="controls"
+      style={layout.opacity === undefined ? undefined : { "--ctl-opacity": layout.opacity }}
+    >
       {layout.shapes.map((s) => {
         if (s.kind === "rect") {
           return (
@@ -113,7 +160,8 @@ export function Controls({
           return (
             <div
               key="dpad"
-              class="ctl dpad"
+              data-id="dpad"
+              class={"ctl dpad" + (editing?.selected === "dpad" ? " selected" : "")}
               style={{ left: s.x - s.r, top: s.y - s.r, width: s.r * 2, height: s.r * 2 }}
             >
               <div class={"arm up" + on("Up")} style={{ width: arm, height: s.r }} />
@@ -128,7 +176,7 @@ export function Controls({
           <div
             key={s.id}
             data-id={s.id}
-            class={`ctl round${on(s.id as Press)}`}
+            class={`ctl round${on(s.id)}`}
             style={{ left: s.x - s.r, top: s.y - s.r, width: s.r * 2, height: s.r * 2 }}
           >
             {s.id}
