@@ -13,9 +13,11 @@ import (
 	"github.com/audemed44/parlor/internal/library"
 )
 
-// Candidate is a save file in the import folder.
+// Candidate is a save file or save state in the import folder.
 type Candidate struct {
-	Path     string `json:"path"` // relative to the import folder
+	Path string `json:"path"` // relative to the import folder
+	// Kind is "save" (in-game, .srm/.sav) or "state" (.state, .ss0-9).
+	Kind     string `json:"kind"`
 	Size     int64  `json:"size"`
 	Modified string `json:"modified"`
 	SHA256   string `json:"sha256"`
@@ -25,14 +27,21 @@ type Candidate struct {
 	Imported int64 `json:"imported"`
 }
 
-func isSaveFile(name string) bool {
+// kind is what an import file is by its extension: "save", "state" or "".
+func kind(name string) string {
 	ext := strings.ToLower(filepath.Ext(name))
-	return ext == ".srm" || ext == ".sav"
+	switch {
+	case ext == ".srm" || ext == ".sav":
+		return "save"
+	case ext == ".state" || ext == ".ss" || len(ext) == 4 && strings.HasPrefix(ext, ".ss") && ext[3] >= '0' && ext[3] <= '9':
+		return "state"
+	}
+	return ""
 }
 
-// Candidates lists the in-game saves (.srm, .sav) under dir, newest first,
-// each with the game its name suggests and whether it was imported already.
-// Save states aren't included.
+// Candidates lists the in-game saves (.srm, .sav) and save states (.state
+// from RomM, .ss1 from mGBA) under dir, newest first, each with the game
+// its name suggests and whether it was imported already.
 func (s *Store) Candidates(dir string) ([]Candidate, error) {
 	titles, err := s.Titles()
 	if err != nil {
@@ -43,11 +52,16 @@ func (s *Store) Candidates(dir string) ([]Candidate, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !isSaveFile(d.Name()) {
+		k := kind(d.Name())
+		if d.IsDir() || k == "" {
 			return nil
 		}
+		limit := int64(MaxSaveSize)
+		if k == "state" {
+			limit = MaxStateSize
+		}
 		info, err := d.Info()
-		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > MaxSaveSize {
+		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > limit {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -58,6 +72,7 @@ func (s *Store) Candidates(dir string) ([]Candidate, error) {
 		sum := sha256.Sum256(data)
 		c := Candidate{
 			Path:      filepath.ToSlash(rel),
+			Kind:      k,
 			Size:      info.Size(),
 			Modified:  stamp(info.ModTime()),
 			SHA256:    hex.EncodeToString(sum[:]),
@@ -71,6 +86,30 @@ func (s *Store) Candidates(dir string) ([]Candidate, error) {
 	return out, err
 }
 
+// ImportState puts a save state from dir in one of a game's slots.
+func (s *Store) ImportState(dir, rel string, gameID int64, slot int) (State, error) {
+	path, err := within(dir, rel)
+	if err != nil || kind(path) != "state" {
+		return State{}, ErrNotFound
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > MaxStateSize {
+		return State{}, ErrNotFound
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return State{}, err
+	}
+	v, err := s.PutState(gameID, slot, NewState{Data: data, Device: "Import", Note: rel, Created: info.ModTime()})
+	if err != nil {
+		return State{}, err
+	}
+	sum := sha256.Sum256(data)
+	_, err = s.DB.Exec("INSERT OR REPLACE INTO imports(sha256, path, game_id, imported) VALUES(?,?,?,?)",
+		hex.EncodeToString(sum[:]), filepath.ToSlash(rel), gameID, stamp(s.Now()))
+	return v, err
+}
+
 // Import adds a save file from dir to a game, dated by the file's time, so
 // an older file lands in the history without replacing a newer save. A file
 // whose bytes the game already has is only recorded as imported.
@@ -78,7 +117,7 @@ func (s *Store) Import(dir, rel string, gameID int64) (Save, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path, err := within(dir, rel)
-	if err != nil || !isSaveFile(path) {
+	if err != nil || kind(path) != "save" {
 		return Save{}, ErrNotFound
 	}
 	info, err := os.Stat(path)

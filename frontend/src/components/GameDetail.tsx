@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { ArrowLeft, Download, History, Play, Upload } from "lucide-preact";
+import { ArrowLeft, Download, History, Play, Trash2, Upload } from "lucide-preact";
 import { api, upload } from "../api";
 import { ago, deviceName, duration, size, sources, when } from "../lib";
-import type { GameDetail as Detail, Save } from "../types";
+import type { GameDetail as Detail, Save, State } from "../types";
 import { Cover } from "./Cover";
 import { ErrorNote, Section } from "./ui";
 
@@ -46,6 +46,17 @@ export function GameDetail({ id, onChange }: { id: number; onChange: () => void 
       return;
     try {
       await api(`saves/${s.id}/restore`, { device: deviceName() });
+      changed();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function dropState(v: State) {
+    const name = v.slot === 0 ? "where you left off" : `slot ${v.slot}`;
+    if (!confirm(`Delete the save state in ${name}? The in-game save isn't affected.`)) return;
+    try {
+      await api(`games/${id}/states/${v.slot}`, undefined, "DELETE");
       changed();
     } catch (e) {
       setError((e as Error).message);
@@ -164,6 +175,43 @@ export function GameDetail({ id, onChange }: { id: number; onChange: () => void 
                     Restore
                   </button>
                 )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <Section index="03" title="Save states" />
+        <p class="hint section-note">
+          Snapshots from the player's menu, and the one taken when you leave, so you carry on from
+          the same moment on any device. Loading one leaves the in-game save as it is.
+        </p>
+        {game.states.length === 0 ? (
+          <p class="muted">No save states yet.</p>
+        ) : (
+          <div class="state-grid">
+            {game.states.map((v) => (
+              <div class="slot" key={v.slot}>
+                <div class="slot-shot">
+                  {v.image && (
+                    <img
+                      src={`/api/games/${id}/states/${v.slot}/image?v=${v.sha256.slice(0, 12)}`}
+                      alt=""
+                    />
+                  )}
+                  <span class="slot-n">{v.slot === 0 ? "LEFT OFF" : v.slot}</span>
+                </div>
+                <div class="row-main">
+                  <strong>{when(v.created)}</strong>
+                  <span class="hint">
+                    {v.device || "—"}
+                    {v.note ? ` · ${v.note}` : ""}
+                  </span>
+                </div>
+                <button class="btn small" onClick={() => dropState(v)}>
+                  <Trash2 size={13} /> Delete
+                </button>
               </div>
             ))}
           </div>

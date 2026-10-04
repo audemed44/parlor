@@ -2,15 +2,31 @@ import { useEffect, useState } from "preact/hooks";
 import { ArrowLeft, Check, FileDown } from "lucide-preact";
 import { api } from "../api";
 import { size, when } from "../lib";
-import type { Candidate, Game } from "../types";
+import { quickSlots, type Candidate, type Game } from "../types";
 import { Empty, ErrorNote, Section } from "./ui";
 
 // ImportPage brings in saves from the import folder (RomM's saves, copied
 // RetroDECK saves), matched to games by name. Each is added to the game's
 // history dated by the file, so an old file never replaces a newer save.
+// Save states go into a slot: each game's newest into "where you left off",
+// so the player offers to carry on from it, and older ones into slots 1-4.
+export function defaultSlots(files: Candidate[]): Record<string, number> {
+  const next: Record<number, number> = {};
+  const out: Record<string, number> = {};
+  for (const f of files) {
+    if (f.kind !== "state") continue;
+    const game = f.imported || f.suggested;
+    const n = next[game] ?? 0;
+    out[f.path] = Math.min(n, quickSlots.length);
+    next[game] = n + 1;
+  }
+  return out;
+}
+
 export function ImportPage({ games, onChange }: { games: Game[]; onChange: () => void }) {
   const [files, setFiles] = useState<Candidate[] | null>(null),
     [choice, setChoice] = useState<Record<string, number>>({}),
+    [slots, setSlots] = useState<Record<string, number>>({}),
     [busy, setBusy] = useState(""),
     [error, setError] = useState("");
 
@@ -19,6 +35,7 @@ export function ImportPage({ games, onChange }: { games: Game[]; onChange: () =>
       const c = await api<Candidate[]>("imports");
       setFiles(c);
       setChoice(Object.fromEntries(c.map((f) => [f.path, f.imported || f.suggested])));
+      setSlots((s) => ({ ...defaultSlots(c), ...s }));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -32,7 +49,7 @@ export function ImportPage({ games, onChange }: { games: Game[]; onChange: () =>
     for (const path of paths) {
       setBusy(path);
       try {
-        await api("imports", { path, game_id: choice[path] });
+        await api("imports", { path, game_id: choice[path], slot: slots[path] });
       } catch (e) {
         setError(`${path}: ${(e as Error).message}`);
         break;
@@ -57,8 +74,9 @@ export function ImportPage({ games, onChange }: { games: Game[]; onChange: () =>
         </span>
         <h1>{"Bring your\nsaves along."}</h1>
         <p class="lede">
-          In-game saves (<code>.srm</code>, <code>.sav</code>) found in the import folder, matched
-          to games by name. Check the matches, then import. Save states aren't imported.
+          In-game saves (<code>.srm</code>, <code>.sav</code>) and save states (<code>.state</code>,{" "}
+          <code>.ss1</code>) found in the import folder, matched to games by name. Check the
+          matches, then import. A state imported into "Left off" is offered when the game starts.
         </p>
       </div>
       <ErrorNote error={error} />
@@ -77,7 +95,9 @@ export function ImportPage({ games, onChange }: { games: Game[]; onChange: () =>
         {files === null ? (
           <div class="loading">Looking…</div>
         ) : files.length === 0 ? (
-          <Empty title="Nothing to import">No .srm or .sav files in the import folder.</Empty>
+          <Empty title="Nothing to import">
+            No saves (.srm, .sav) or save states (.state, .ss1) in the import folder.
+          </Empty>
         ) : (
           <div class="rows">
             {files.map((f) => (
@@ -86,9 +106,28 @@ export function ImportPage({ games, onChange }: { games: Game[]; onChange: () =>
                 <div class="row-main">
                   <strong class="path">{f.path}</strong>
                   <span class="hint">
-                    {when(f.modified)} · {size(f.size)}
+                    {f.kind === "state" ? "Save state" : "In-game save"} · {when(f.modified)} ·{" "}
+                    {size(f.size)}
                   </span>
                 </div>
+                {f.kind === "state" && (
+                  <select
+                    class="slot-select"
+                    aria-label="Slot"
+                    value={slots[f.path] ?? 0}
+                    disabled={!!f.imported}
+                    onChange={(e) =>
+                      setSlots({ ...slots, [f.path]: Number(e.currentTarget.value) })
+                    }
+                  >
+                    <option value={0}>Left off</option>
+                    {quickSlots.map((n) => (
+                      <option value={n} key={n}>
+                        Slot {n}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <select
                   value={choice[f.path] || 0}
                   disabled={!!f.imported}

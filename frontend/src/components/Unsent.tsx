@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { CloudOff } from "lucide-preact";
 import { ago } from "../lib";
 import { pending, type Pending } from "../pending";
-import { send } from "../sync";
+import { flushStates, send } from "../sync";
 import type { Save } from "../types";
 
 // Unsent lists saves this device made but couldn't upload (offline, or the
@@ -12,6 +12,8 @@ export function Unsent({ onChange }: { onChange: () => void }) {
   const [items, setItems] = useState<{ p: Pending; conflict?: Save }[]>([]);
 
   async function retry() {
+    // States taken when leaving a game go quietly; they need no decision.
+    flushStates();
     const all = await pending.all().catch(() => [] as Pending[]);
     const out: { p: Pending; conflict?: Save }[] = [];
     let sent = false;

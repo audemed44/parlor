@@ -36,10 +36,16 @@ func (s *Server) gameRoutes(mux *http.ServeMux) {
 			storeFailure(w, err)
 			return
 		}
+		states, err := s.Store.States(g.ID)
+		if err != nil {
+			storeFailure(w, err)
+			return
+		}
 		jsonResponse(w, struct {
 			store.Game
-			Saves []store.Save `json:"saves"`
-		}{g, saves})
+			Saves  []store.Save  `json:"saves"`
+			States []store.State `json:"states"`
+		}{g, saves, states})
 	})
 	mux.HandleFunc("POST /api/games/{id}/notes", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {

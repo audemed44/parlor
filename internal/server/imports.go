@@ -25,8 +25,15 @@ func (s *Server) importRoutes(mux *http.ServeMux) {
 		var body struct {
 			Path   string `json:"path"`
 			GameID int64  `json:"game_id"`
+			// Slot is where a save state goes; in-game saves ignore it.
+			Slot *int `json:"slot"`
 		}
 		if !decode(w, r, &body) {
+			return
+		}
+		if body.Slot != nil {
+			v, err := s.Store.ImportState(s.ImportDir, body.Path, body.GameID, *body.Slot)
+			stateResult(w, v, err)
 			return
 		}
 		v, err := s.Store.Import(s.ImportDir, body.Path, body.GameID)

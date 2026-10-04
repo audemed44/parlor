@@ -1,6 +1,6 @@
-// Package store keeps Parlor's state: SQLite at <dir>/parlor.db and every
-// save version as a file under <dir>/saves/<game>/<version>.srm. Keep the
-// two together in backups.
+// Package store keeps Parlor's state: SQLite at <dir>/parlor.db, every save
+// version as a file under <dir>/saves/<game>/<version>.srm and save states
+// under <dir>/states/<game>/<slot>.ss. Keep them together in backups.
 package store
 
 import (
@@ -29,14 +29,18 @@ CREATE INDEX IF NOT EXISTS saves_game ON saves(game_id, created);
 CREATE TABLE IF NOT EXISTS imports(
   sha256 TEXT NOT NULL, path TEXT NOT NULL, game_id INTEGER NOT NULL, imported TEXT NOT NULL,
   PRIMARY KEY(sha256, path));
-CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);`
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS states(
+  id INTEGER PRIMARY KEY, game_id INTEGER NOT NULL REFERENCES games(id), slot INTEGER NOT NULL,
+  created TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL,
+  device TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', UNIQUE(game_id, slot));`
 
 // timeFormat is how times are stored: UTC, fixed width, so they sort as text.
 const timeFormat = "2006-01-02T15:04:05.000Z"
 
 func stamp(t time.Time) string { return t.UTC().Format(timeFormat) }
 
-// Store is the database plus the save files.
+// Store is the database plus the save and state files.
 type Store struct {
 	DB  *sql.DB
 	Dir string
@@ -55,8 +59,10 @@ var ErrNotFound = errors.New("not found")
 
 // Open opens (creating and upgrading as needed) the store in dir.
 func Open(dir string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Join(dir, "saves"), 0700); err != nil {
-		return nil, err
+	for _, sub := range []string{"saves", "states"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0700); err != nil {
+			return nil, err
+		}
 	}
 	db, err := sql.Open("sqlite", filepath.Join(dir, "parlor.db"))
 	if err != nil {

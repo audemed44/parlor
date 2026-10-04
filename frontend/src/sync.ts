@@ -1,8 +1,8 @@
 // Sending in-game saves to the server.
 import { HTTPError, putBytes } from "./api";
 import { deviceName } from "./lib";
-import { pending, type Pending } from "./pending";
-import type { Save } from "./types";
+import { pending, pendingStates, type Pending, type PendingState } from "./pending";
+import type { Save, State } from "./types";
 
 export type Upload =
   { ok: true; save: Save } | { ok: false; conflict: Save } | { ok: false; offline: true };
@@ -27,6 +27,25 @@ export async function send(p: Pending, force = false): Promise<Upload> {
     }
     return { ok: false, offline: true };
   }
+}
+
+// sendState uploads the state taken when leaving a game. The server keeps
+// whichever is newer, so a late upload can't replace a later state from
+// another device. It returns false when it should be retried.
+export async function sendState(p: PendingState): Promise<boolean> {
+  const q = new URLSearchParams({ device: deviceName(), at: p.at });
+  try {
+    await putBytes<State>(`games/${p.gameId}/states/0?${q}`, p.data);
+  } catch (e) {
+    if (!(e instanceof HTTPError) || e.status >= 500) return false;
+  }
+  await pendingStates.remove(p);
+  return true;
+}
+
+// flushStates retries every state still waiting.
+export async function flushStates() {
+  for (const p of await pendingStates.all().catch(() => [] as PendingState[])) await sendState(p);
 }
 
 // digest is a short fingerprint for "has the save changed?".
