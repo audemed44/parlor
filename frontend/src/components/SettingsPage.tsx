@@ -2,9 +2,11 @@ import { useEffect, useState } from "preact/hooks";
 import { ArrowLeft } from "lucide-preact";
 import { api } from "../api";
 import { fastForwardSpeeds, type Settings } from "../types";
+import { ControllerSettings } from "./ControllerSettings";
 import { ErrorNote, Section } from "./ui";
 
-// SettingsPage holds settings shared by every device.
+// SettingsPage holds settings shared by every device, and this device's
+// controller.
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null),
     [error, setError] = useState(""),
@@ -36,7 +38,7 @@ export function SettingsPage() {
         <span class="eyebrow">
           <span class="accent">Settings</span>
           <span class="slash">/</span>
-          Every device
+          Every device and this one
         </span>
         <h1>Settings</h1>
       </div>
@@ -65,6 +67,7 @@ export function SettingsPage() {
           </div>
         )}
       </section>
+      <ControllerSettings index="02" />
     </div>
   );
 }

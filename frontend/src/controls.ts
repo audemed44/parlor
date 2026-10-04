@@ -96,6 +96,29 @@ export function layout(w: number, h: number): Layout {
   };
 }
 
+// padLayout is for playing with a controller on a touch screen: the game
+// as big as it fits, and only a menu button to touch.
+export function padLayout(w: number, h: number): Layout {
+  const sw = Math.min(w, h * 1.5);
+  const sh = sw / 1.5;
+  const portrait = h > w;
+  const screen = { x: (w - sw) / 2, y: portrait ? 0 : (h - sh) / 2, w: sw, h: sh };
+  return {
+    screen,
+    landscape: true,
+    shapes: [
+      {
+        kind: "rect",
+        id: "Menu",
+        x: w - 70,
+        y: portrait ? sh + 14 : 10,
+        w: 56,
+        h: 28,
+      },
+    ],
+  };
+}
+
 // How much bigger hit zones are than the drawn controls.
 const ROUND_HIT = 1.4;
 const DPAD_HIT = 1.35;

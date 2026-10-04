@@ -868,6 +868,24 @@ footer {
 .settings-grid .segmented button {
   flex: 1;
 }
+.toast {
+  position: absolute;
+  left: 50%;
+  top: max(14px, env(safe-area-inset-top));
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  background: rgb(0 0 0 / 0.8);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  pointer-events: none;
+}
+.bindings {
+  margin-top: 14px;
+}
+.bindings .row .mono {
+  text-align: right;
+}
 .state-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
