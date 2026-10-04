@@ -23,8 +23,9 @@ import (
 const token = "test-token-0123456789"
 
 type harness struct {
-	t   *testing.T
-	srv *httptest.Server
+	t    *testing.T
+	srv  *httptest.Server
+	roms string
 }
 
 func setup(t *testing.T) *harness {
@@ -47,7 +48,7 @@ func setup(t *testing.T) *harness {
 	}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
-	return &harness{t, srv}
+	return &harness{t, srv, roms}
 }
 
 // do sends a request with the bearer token; body may be a []byte (raw) or
@@ -435,8 +436,54 @@ func TestFoyerWidget(t *testing.T) {
 	}
 	json.Unmarshal(body, &w)
 	if w.Version != 1 || len(w.Items) != 1 || w.Items[0].Title != "Continue: Parlor Test" ||
-		w.Items[0].URL != "/#/play/1" || w.Items[0].Subtitle != "just now · 2 min played" || w.Stats[0].Value != "1" {
+		w.Items[0].URL != "/#/play/1" || w.Items[0].Subtitle != "GBA · just now · 2 min played" || w.Stats[0].Value != "1" {
 		t.Fatalf("widget: %s", body)
+	}
+}
+
+// DS games are sent without their padding, and in ranges.
+func TestTrimmedROM(t *testing.T) {
+	h := setup(t)
+	nds := make([]byte, 64<<10)
+	binary.LittleEndian.PutUint32(nds[0x80:], 0x1000)
+	for i := range 0x1088 {
+		nds[0x200+i%0x100] = byte(i)
+	}
+	os.WriteFile(filepath.Join(h.roms, "Test.nds"), nds, 0644)
+	h.do("POST", "/api/library/scan", nil)
+	resp, body := h.do("GET", "/api/games/2", nil)
+	if !strings.Contains(string(body), `"platform":"nds"`) {
+		t.Fatalf("game: %d %s", resp.StatusCode, body)
+	}
+	resp, body = h.do("GET", "/api/games/2/rom", nil)
+	if resp.StatusCode != 200 || !bytes.Equal(body, nds[:0x1088]) {
+		t.Fatalf("rom: %d, %d bytes", resp.StatusCode, len(body))
+	}
+	req, _ := http.NewRequest("GET", h.srv.URL+"/api/games/2/rom", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Range", "bytes=4096-")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 206 || !bytes.Equal(body, nds[0x1000:0x1088]) {
+		t.Fatalf("range: %d, %d bytes", resp.StatusCode, len(body))
+	}
+}
+
+// /play is the app with the looser policy EmulatorJS's cores need; the
+// rest of the app keeps the strict one.
+func TestPlayPolicy(t *testing.T) {
+	h := setup(t)
+	resp, _ := h.do("GET", "/play", nil)
+	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "'unsafe-eval'") {
+		t.Fatalf("/play: %d %q", resp.StatusCode, resp.Header.Get("Content-Security-Policy"))
+	}
+	resp, _ = h.do("GET", "/", nil)
+	if strings.Contains(resp.Header.Get("Content-Security-Policy"), "'unsafe-eval'") {
+		t.Fatalf("/: %q", resp.Header.Get("Content-Security-Policy"))
 	}
 }
 

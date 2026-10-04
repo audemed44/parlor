@@ -47,6 +47,19 @@ func (s *Store) Candidates(dir string) ([]Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A save in a console's folder only matches that console's games.
+	byPlatform := map[string]map[int64]string{}
+	for id, t := range titles {
+		p := library.PlatformOf(t.path)
+		if byPlatform[p] == nil {
+			byPlatform[p] = map[int64]string{}
+		}
+		byPlatform[p][id] = t.title
+	}
+	all := map[int64]string{}
+	for id, t := range titles {
+		all[id] = t.title
+	}
 	out := []Candidate{}
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -70,13 +83,17 @@ func (s *Store) Candidates(dir string) ([]Candidate, error) {
 		}
 		rel, _ := filepath.Rel(dir, path)
 		sum := sha256.Sum256(data)
+		match := all
+		if p := library.PlatformHint(rel); p != "" {
+			match = byPlatform[p]
+		}
 		c := Candidate{
 			Path:      filepath.ToSlash(rel),
 			Kind:      k,
 			Size:      info.Size(),
 			Modified:  stamp(info.ModTime()),
 			SHA256:    hex.EncodeToString(sum[:]),
-			Suggested: library.Match(d.Name(), titles),
+			Suggested: library.Match(d.Name(), match),
 		}
 		_ = s.DB.QueryRow("SELECT game_id FROM imports WHERE sha256=? AND path=?", c.SHA256, c.Path).Scan(&c.Imported)
 		out = append(out, c)

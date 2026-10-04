@@ -2,9 +2,11 @@ package server
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"os"
 
+	"github.com/audemed44/parlor/internal/library"
 	"github.com/audemed44/parlor/internal/store"
 )
 
@@ -65,7 +67,8 @@ func (s *Server) gameRoutes(mux *http.ServeMux) {
 		jsonResponse(w, map[string]bool{"ok": true})
 	})
 	// Per-game settings: the save type and real-time clock mGBA should use
-	// ("" lets it detect them), and whether the game is hidden.
+	// ("" lets it detect them; GBA games only), and whether the game is
+	// hidden.
 	mux.HandleFunc("POST /api/games/{id}/settings", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			SaveType string `json:"save_type"`
@@ -125,10 +128,11 @@ func (s *Server) gameRoutes(mux *http.ServeMux) {
 			return
 		}
 		// The checksum is the version: the browser keeps its own copy and
-		// revalidates.
+		// revalidates. DS games are sent without their padding.
 		w.Header().Set("Cache-Control", "private, no-cache")
 		w.Header().Set("ETag", `"`+g.SHA1+`"`)
 		w.Header().Set("Content-Type", "application/octet-stream")
-		http.ServeContent(w, r, "", info.ModTime(), f)
+		used := library.Used(f, g.Platform, info.Size())
+		http.ServeContent(w, r, "", info.ModTime(), io.NewSectionReader(f, 0, used))
 	})
 }

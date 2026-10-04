@@ -44,7 +44,7 @@ func main() {
 	}
 	roms := env("PARLOR_ROMS", "/roms")
 	if info, err := os.Stat(roms); err != nil || !info.IsDir() {
-		slog.Error("PARLOR_ROMS must be a folder of .gba files", "path", roms)
+		slog.Error("PARLOR_ROMS must be the folder of ROMs", "path", roms)
 		os.Exit(1)
 	}
 	keep, err := strconv.Atoi(env("PARLOR_SAVE_VERSIONS", "20"))

@@ -15,20 +15,22 @@ import (
 	"time"
 )
 
-// Save states are snapshots of the whole machine, taken by mGBA. Each game
+// Save states are snapshots of the whole machine, taken by the emulator
+// (mGBA for the GBA, a RetroArch core for the rest). Each game
 // has QuickSlots slots you save to by hand, and slot 0, the state taken
 // when you leave the game, to carry on from there on any device. Saving to
 // a slot replaces what was in it; only in-game saves keep a history.
 const (
 	AutoSlot   = 0
 	QuickSlots = 4
-	// MaxStateSize fits mGBA's GBA state (~400 KiB) with its screenshot and
-	// the in-game save.
-	MaxStateSize = 4 << 20
+	// MaxStateSize fits a DS state (~6.5 MiB) with its screenshot; mGBA's
+	// GBA states are ~400 KiB.
+	MaxStateSize = 16 << 20
 )
 
-// ErrInvalidState is returned for data that isn't a GBA state from mGBA.
-var ErrInvalidState = errors.New("this isn't an mGBA save state for a GBA game")
+// ErrInvalidState is returned for data that isn't a save state the game's
+// emulator can load.
+var ErrInvalidState = errors.New("this isn't a save state for this game's emulator")
 
 // ErrInvalidSlot is returned for a slot outside 0..QuickSlots.
 var ErrInvalidSlot = fmt.Errorf("slots are 0 (when you left) to %d", QuickSlots)
@@ -45,7 +47,8 @@ type State struct {
 	// Note says where an imported state came from.
 	Note string `json:"note"`
 	// Image is whether the state carries a screenshot (mGBA writes states
-	// as PNGs of the screen; other frontends write the bare state).
+	// as PNGs of the screen, and Parlor wraps RetroArch's the same way;
+	// other frontends write the bare state).
 	Image bool `json:"image"`
 }
 
@@ -55,10 +58,15 @@ var pngMagic = []byte("\x89PNG\r\n\x1a\n")
 // low byte is the state version.
 const gbaStateMagic = 0x01000000
 
-// NormalizeState checks a state is one mGBA can load, unwrapping gzip
-// (some frontends compress their states). PNG states are mGBA's own, with
-// the state in a chunk.
-func NormalizeState(data []byte) ([]byte, error) {
+// raState starts RetroArch's states, which EmulatorJS (and so RomM's
+// player) writes.
+var raState = []byte("RASTATE")
+
+// NormalizeState checks a state is one the platform's emulator can load,
+// unwrapping gzip (some frontends compress their states). PNG states are
+// a screenshot with the state in a chunk: mGBA's own, or RetroArch's
+// wrapped by Parlor.
+func NormalizeState(platform string, data []byte) ([]byte, error) {
 	if len(data) > 2 && data[0] == 0x1f && data[1] == 0x8b {
 		r, err := gzip.NewReader(bytes.NewReader(data))
 		if err != nil {
@@ -73,6 +81,12 @@ func NormalizeState(data []byte) ([]byte, error) {
 		return nil, ErrInvalidState
 	}
 	if bytes.HasPrefix(data, pngMagic) {
+		return data, nil
+	}
+	if platform != "gba" {
+		if !bytes.HasPrefix(data, raState) {
+			return nil, ErrInvalidState
+		}
 		return data, nil
 	}
 	if len(data) < 0x400 {
@@ -138,6 +152,12 @@ func (s *Store) StateData(v State) ([]byte, error) {
 	return os.ReadFile(s.statePath(v.GameID, v.Slot))
 }
 
+// OpenState opens a state's file, to send it without holding it in memory
+// (a DS state is 6.5 MiB).
+func (s *Store) OpenState(v State) (*os.File, error) {
+	return os.Open(s.statePath(v.GameID, v.Slot))
+}
+
 // NewState describes a state being put in a slot.
 type NewState struct {
 	Data   []byte
@@ -155,13 +175,14 @@ func (s *Store) PutState(gameID int64, slot int, n NewState) (State, error) {
 	if slot < 0 || slot > QuickSlots {
 		return State{}, ErrInvalidSlot
 	}
-	data, err := NormalizeState(n.Data)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, err := s.Game(gameID)
 	if err != nil {
 		return State{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, err = s.Game(gameID); err != nil {
+	data, err := NormalizeState(g.Platform, n.Data)
+	if err != nil {
 		return State{}, err
 	}
 	created := n.Created

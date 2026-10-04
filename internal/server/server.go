@@ -33,11 +33,23 @@ type Server struct {
 	FoyerURL string
 }
 
-// The emulator compiles WebAssembly ('wasm-unsafe-eval') and runs its
-// threads as module workers from its own script.
-const contentSecurityPolicy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
+// The emulators compile WebAssembly ('wasm-unsafe-eval'). mGBA runs its
+// threads as module workers from its own script; EmulatorJS unpacks each
+// RetroArch core and runs its script and workers from blob: URLs.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; " +
 	"worker-src 'self' blob:; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; " +
 	"connect-src 'self'; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+// playPolicy is for /play, the same app as a page of its own for the
+// games EmulatorJS runs: the RetroArch cores' glue code builds functions
+// from strings ('unsafe-eval') and fetches its WebAssembly from a blob:
+// URL, and EmulatorJS sets inline styles. Only that page is allowed them;
+// leaving a game there returns to /.
+var playPolicy = strings.NewReplacer(
+	"script-src 'self' blob:", "script-src 'self' blob: 'unsafe-eval'",
+	"style-src 'self'", "style-src 'self' 'unsafe-inline'",
+	"connect-src 'self'", "connect-src 'self' blob:",
+).Replace(contentSecurityPolicy)
 
 // Handler returns the HTTP handler.
 func (s *Server) Handler() http.Handler {
@@ -54,9 +66,15 @@ func (s *Server) Handler() http.Handler {
 	s.settingsRoutes(mux)
 	if s.Files != nil {
 		files := http.FileServerFS(s.Files)
+		mux.HandleFunc("GET /play", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Security-Policy", playPolicy)
+			w.Header().Set("Cache-Control", "no-cache")
+			http.ServeFileFS(w, r, s.Files, "index.html")
+		})
 		mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
-			case strings.HasPrefix(r.URL.Path, "/assets/"), strings.HasPrefix(r.URL.Path, "/core/"):
+			case strings.HasPrefix(r.URL.Path, "/assets/"), strings.HasPrefix(r.URL.Path, "/core/"),
+				strings.HasPrefix(r.URL.Path, "/ejs/"):
 				// Hashed or versioned names: never change.
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			default:

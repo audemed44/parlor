@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 
@@ -64,6 +65,10 @@ func (s *Server) patchRoutes(mux *http.ServeMux) {
 				storeFailure(w, err)
 				return
 			}
+			if base.Size > patch.MaxSize {
+				failure(w, 400, "Only ROMs up to 32 MiB can be patched here")
+				return
+			}
 			if source, err = os.ReadFile(s.Store.ROMFile(s.ROMs, base)); err != nil {
 				failure(w, 404, "The base ROM is missing; rescan the library")
 				return
@@ -79,8 +84,13 @@ func (s *Server) patchRoutes(mux *http.ServeMux) {
 			return
 		}
 		carry, _ := strconv.ParseInt(r.FormValue("carry"), 10, 64)
+		base, err := s.Store.Game(baseID)
+		if err != nil {
+			storeFailure(w, err)
+			return
+		}
 		g, err := s.Store.AddPatched(store.NewPatched{
-			Title: r.FormValue("title"), ROM: rom, CarryFrom: carry,
+			Title: r.FormValue("title"), ROM: rom, Ext: filepath.Ext(base.Path), CarryFrom: carry,
 			HideOld: r.FormValue("hide") == "1", Device: device(r.FormValue("device")),
 		})
 		var exists store.ErrExists
@@ -105,7 +115,7 @@ func (s *Server) findBase(info patch.Info) (int64, []byte, error) {
 		return 0, nil, err
 	}
 	for _, g := range games {
-		if g.Missing || g.Size != info.SourceSize {
+		if g.Missing || g.Size != info.SourceSize || g.Size > patch.MaxSize {
 			continue
 		}
 		data, err := os.ReadFile(s.Store.ROMFile(s.ROMs, g))

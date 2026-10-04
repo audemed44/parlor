@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/audemed44/parlor/internal/library"
 )
 
 // ErrBadName is returned for a patched game's name that can't be a file name.
@@ -22,6 +24,9 @@ func (e ErrExists) Error() string { return fmt.Sprintf("“%s” is already this
 type NewPatched struct {
 	Title string
 	ROM   []byte
+	// Ext is the ROM file's extension, the base ROM's (".gba"); it says
+	// which console the game is for.
+	Ext string
 	// CarryFrom is the game whose save, notes, play time and settings the
 	// new one takes over (an older version of the same hack); 0 for none.
 	CarryFrom int64
@@ -45,6 +50,13 @@ func (s *Store) AddPatched(n NewPatched) (Game, error) {
 			return Game{}, err
 		}
 	}
+	ext := strings.ToLower(n.Ext)
+	if ext == "" {
+		ext = ".gba"
+	}
+	if library.PlatformOf(ext) == "" {
+		return Game{}, ErrBadName
+	}
 	sum := sha1.Sum(n.ROM)
 	hash := hex.EncodeToString(sum[:])
 	s.mu.Lock()
@@ -53,7 +65,7 @@ func (s *Store) AddPatched(n NewPatched) (Game, error) {
 		s.mu.Unlock()
 		return Game{}, ErrExists{existing}
 	}
-	path := filepath.Join(s.Dir, "roms", name+".gba")
+	path := filepath.Join(s.Dir, "roms", name+ext)
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if errors.Is(err, os.ErrExist) {
 		s.mu.Unlock()
@@ -77,7 +89,7 @@ func (s *Store) AddPatched(n NewPatched) (Game, error) {
 	}
 	res, err := s.DB.Exec(`INSERT INTO games(path, title, size, mtime, sha1, added, notes, play_seconds, last_played, save_type, rtc)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-		Patched+name+".gba", name, info.Size(), info.ModTime().Unix(), hash, stamp(s.Now()),
+		Patched+name+ext, name, info.Size(), info.ModTime().Unix(), hash, stamp(s.Now()),
 		from.Notes, from.PlaySeconds, from.LastPlayed, from.SaveType, from.RTC)
 	if err != nil {
 		os.Remove(path)
