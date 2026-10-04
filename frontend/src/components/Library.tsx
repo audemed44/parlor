@@ -5,6 +5,7 @@ import { ago, duration, plural } from "../lib";
 import type { Game, ScanResult } from "../types";
 import { coverURL } from "../covers";
 import { Cover } from "./Cover";
+import { playURL, system, systems } from "../systems";
 import { Empty, ErrorNote, Section } from "./ui";
 import { Unsent } from "./Unsent";
 
@@ -14,14 +15,18 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
     [note, setNote] = useState(""),
     [error, setError] = useState("");
   const [showHidden, setShowHidden] = useState(false);
+  // "" shows every console.
+  const [platform, setPlatform] = useState("");
+  const platforms = Object.values(systems).filter((s) => games.some((g) => g.platform === s.id));
   const recent = games.find((g) => g.last_played && !g.missing && !g.hidden);
   const hidden = games.filter((g) => g.hidden).length;
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = showHidden ? games : games.filter((g) => !g.hidden);
     if (q) list = list.filter((g) => g.title.toLowerCase().includes(q));
+    if (platform) list = list.filter((g) => g.platform === platform);
     return [...list].sort((a, b) => a.title.localeCompare(b.title));
-  }, [games, query, showHidden]);
+  }, [games, query, showHidden, platform]);
 
   async function scan() {
     setBusy(true);
@@ -62,7 +67,7 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
                 ? ` · saved ${ago(recent.save.created)} on ${recent.save.device || "the server"}`
                 : ""}
             </p>
-            <a class="btn primary big" href={`#/play/${recent.id}`}>
+            <a class="btn primary big" href={playURL(recent)}>
               <Play size={18} /> Play
             </a>
           </div>
@@ -73,7 +78,7 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
           <span class="eyebrow">
             <span class="accent">Library</span>
             <span class="slash">/</span>
-            Game Boy Advance
+            {platforms.length === 1 ? platforms[0].name : "Your games"}
           </span>
           <h1>{"Pick a game,\nany game."}</h1>
         </div>
@@ -103,10 +108,26 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
             />
           </label>
         )}
+        {platforms.length > 1 && (
+          <div class="segmented consoles" role="radiogroup" aria-label="Console">
+            {[{ id: "", short: "All" }, ...platforms].map((p) => (
+              <button
+                key={p.id}
+                role="radio"
+                aria-checked={platform === p.id}
+                class={platform === p.id ? "on" : ""}
+                onClick={() => setPlatform(p.id)}
+              >
+                {p.short}
+              </button>
+            ))}
+          </div>
+        )}
         {games.length === 0 ? (
           <Empty title="No games yet">
-            Put <code>.gba</code> files in the library folder (<code>PARLOR_ROMS</code>), then
-            rescan.
+            Put ROMs (<code>.gba</code>, <code>.gb</code>, <code>.gbc</code>, <code>.nes</code>,{" "}
+            <code>.sfc</code>, <code>.nds</code>) in the library folder (<code>PARLOR_ROMS</code>),
+            then rescan.
           </Empty>
         ) : (
           <div class="grid">
@@ -119,6 +140,7 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
                 <Cover title={g.title} src={coverURL(g)} />
                 <strong>{g.title}</strong>
                 <span class="hint">
+                  {platforms.length > 1 && <span class="console">{system(g.platform).short}</span>}
                   {g.missing
                     ? "ROM missing"
                     : g.last_played

@@ -4,7 +4,8 @@ import { coverURL, shrink } from "../covers";
 import { api, upload } from "../api";
 import { ago, deviceName, duration, size, sources, when } from "../lib";
 import { saveTypes, type Game, type GameDetail as Detail, type Save, type State } from "../types";
-import { PatchForm } from "./PatchForm";
+import { MAX_PATCH_BASE, PatchForm } from "./PatchForm";
+import { playURL, system } from "../systems";
 import { Cover } from "./Cover";
 import { ErrorNote, Section } from "./ui";
 
@@ -117,6 +118,9 @@ export function GameDetail({
 
   if (!game) return error ? <ErrorNote error={error} /> : <div class="loading">Loading…</div>;
   const latest = game.saves[0];
+  const sys = system(game.platform);
+  // Patching reads the ROM into memory on the server: GBA-sized ones only.
+  const patchable = game.size <= MAX_PATCH_BASE;
   return (
     <div class="page">
       <a class="text-link back" href="#/">
@@ -128,7 +132,7 @@ export function GameDetail({
         </div>
         <div class="continue-text">
           <span class="eyebrow">
-            <span class="accent">Game Boy Advance</span>
+            <span class="accent">{sys.name}</span>
             <span class="slash">/</span>
             <span class="mono">{size(game.size)}</span>
           </span>
@@ -152,7 +156,7 @@ export function GameDetail({
               The ROM is missing from the library folder; its saves are kept.
             </p>
           ) : (
-            <a class="btn primary big" href={`#/play/${game.id}`}>
+            <a class="btn primary big" href={playURL(game)}>
               <Play size={18} /> Play
             </a>
           )}
@@ -270,48 +274,52 @@ export function GameDetail({
 
       <section>
         <Section index="04" title="Game settings" />
-        <p class="hint section-note">
-          mGBA detects these for nearly every game, and gives Pokémon ROM hacks Flash 128 KB and a
-          clock. Change them only when a game can't save or its day and night don't follow the time.
-          They apply the next time the game starts, on every device.
-        </p>
-        <div class="settings-grid">
-          <span class="eyebrow">Save type</span>
-          <select
-            aria-label="Save type"
-            value={game.save_type}
-            onChange={(e) => setOverrides({ save_type: e.currentTarget.value })}
-          >
-            {saveTypes.map(([value, label]) => (
-              <option value={value} key={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <span class="eyebrow">Real-time clock</span>
-          <div class="segmented" role="radiogroup" aria-label="Real-time clock">
-            {(
-              [
-                ["", "Detect"],
-                ["on", "On"],
-                ["off", "Off"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                role="radio"
-                aria-checked={game.rtc === value}
-                class={game.rtc === value ? "on" : ""}
-                onClick={() => setOverrides({ rtc: value })}
+        {sys.id === "gba" && (
+          <>
+            <p class="hint section-note">
+              mGBA detects these for nearly every game, and gives Pokémon ROM hacks Flash 128 KB and
+              a clock. Change them only when a game can't save or its day and night don't follow the
+              time. They apply the next time the game starts, on every device.
+            </p>
+            <div class="settings-grid">
+              <span class="eyebrow">Save type</span>
+              <select
+                aria-label="Save type"
+                value={game.save_type}
+                onChange={(e) => setOverrides({ save_type: e.currentTarget.value })}
               >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <p class="hint section-note">
-          The clock is this device's: the game's day and night follow the time where you play.
-        </p>
+                {saveTypes.map(([value, label]) => (
+                  <option value={value} key={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <span class="eyebrow">Real-time clock</span>
+              <div class="segmented" role="radiogroup" aria-label="Real-time clock">
+                {(
+                  [
+                    ["", "Detect"],
+                    ["on", "On"],
+                    ["off", "Off"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    role="radio"
+                    aria-checked={game.rtc === value}
+                    class={game.rtc === value ? "on" : ""}
+                    onClick={() => setOverrides({ rtc: value })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p class="hint section-note">
+              The clock is this device's: the game's day and night follow the time where you play.
+            </p>
+          </>
+        )}
         <div class="settings-grid">
           <span class="eyebrow">Cover</span>
           <div class="cover-actions">
@@ -357,14 +365,16 @@ export function GameDetail({
         </div>
       </section>
 
-      <section>
-        <Section index="05" title="Update with a patch" />
-        <p class="hint section-note">
-          A new version of this hack? Apply its patch to the clean base ROM. The new version becomes
-          its own game, starting from this one's save.
-        </p>
-        <PatchForm games={games} from={game} onDone={onChange} />
-      </section>
+      {patchable && (
+        <section>
+          <Section index="05" title="Update with a patch" />
+          <p class="hint section-note">
+            A new version of this hack? Apply its patch to the clean base ROM. The new version
+            becomes its own game, starting from this one's save.
+          </p>
+          <PatchForm games={games} from={game} onDone={onChange} />
+        </section>
+      )}
     </div>
   );
 }
