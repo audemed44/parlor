@@ -15,6 +15,7 @@ import "C"
 import (
 	"errors"
 	"sort"
+	"time"
 	"unsafe"
 )
 
@@ -212,6 +213,10 @@ func SetOption(key, value string) {
 // SetMaxHeight scales OpenGL frames taller than h down to it (0: never),
 // so a game can render at a higher resolution than it's streamed at.
 func SetMaxHeight(h int) { C.host_set_max_height(C.unsigned(max(h, 0))) }
+
+// TakeReadback is the time spent converting OpenGL frames and reading
+// them back from the GPU since the last call.
+func TakeReadback() time.Duration { return time.Duration(C.host_take_convert_ns()) }
 
 // Serialize is a save state of the running game.
 func Serialize() ([]byte, error) {

@@ -443,9 +443,10 @@ func (s *Session) queueVideo() {
 	}
 	var buf []byte
 	select {
-	case buf = <-s.free:
-	case old := <-s.frames:
+	case old := <-s.frames: // still waiting: replace it
 		buf = old.Pix
+	default:
+		buf = <-s.free
 	}
 	f.Pix = append(buf[:0], f.Pix...)
 	s.frames <- frame{f, s.scale}
@@ -676,6 +677,7 @@ func (p *perf) report(speed int) {
 	sent := int(p.sent.Swap(0))
 	encode := time.Duration(p.encode.Swap(0))
 	slog.Info("performance", "emulated_fps", int(float64(p.frames)/d.Seconds()), "sent_fps", int(float64(sent)/d.Seconds()),
-		"speed", speed, "emulate_per_tick", ms(p.emulate, p.ticks), "encode_per_frame", ms(encode, sent))
+		"speed", speed, "emulate_per_tick", ms(p.emulate, p.ticks), "readback_per_frame", ms(retro.TakeReadback(), p.frames),
+		"encode_per_frame", ms(encode, sent), "busy", strconv.Itoa(int(100*p.emulate/d))+"%")
 	p.since, p.ticks, p.frames, p.emulate = time.Now(), 0, 0, 0
 }

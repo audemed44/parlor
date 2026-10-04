@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "libretro.h"
@@ -63,6 +64,7 @@ static struct {
   GLuint conv_prog[2], conv_fbo[2], conv_tex[2], conv_vao;
   unsigned conv_w, conv_h, max_height;
   bool options_changed;
+  uint64_t convert_ns;
 
   uint32_t buttons;
   int16_t analog[2][2];
@@ -316,7 +318,12 @@ static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch
       ow = ((unsigned)((double)w * oh / h + 1)) & ~1u;
     }
     if (!grow(&H.frame, &H.frame_cap, (size_t)ow * oh * 3 / 2)) return;
-    if (convert(w, h, ow, oh) < 0) return;
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    int ok = convert(w, h, ow, oh);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    H.convert_ns += (uint64_t)(t1.tv_sec - t0.tv_sec) * 1000000000u + (t1.tv_nsec - t0.tv_nsec);
+    if (ok < 0) return;
     H.fmt = HOST_NV12;
     H.stride = ow;
     H.flip = 0;
@@ -618,6 +625,12 @@ void host_set_option(const char *key, const char *value) {
 }
 
 void host_set_max_height(unsigned h) { H.max_height = h; }
+
+uint64_t host_take_convert_ns(void) {
+  uint64_t n = H.convert_ns;
+  H.convert_ns = 0;
+  return n;
+}
 
 size_t host_state_size(void) { return H.state_size(); }
 int host_serialize(void *data, size_t size) { return H.serialize(data, size) ? 0 : -1; }
