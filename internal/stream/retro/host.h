@@ -40,6 +40,9 @@ void host_set_option(const char *key, const char *value);
 // (0: never), so the game can render at a higher resolution than it's
 // streamed at.
 void host_set_max_height(unsigned h);
+// host_take_convert_ns is the time spent converting and reading back
+// OpenGL frames since the last call.
+uint64_t host_take_convert_ns(void);
 size_t host_state_size(void);
 int host_serialize(void *data, size_t size);
 int host_unserialize(const void *data, size_t size);

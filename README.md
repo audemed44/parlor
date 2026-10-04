@@ -192,10 +192,12 @@ reachable from your devices (over Tailscale, the server's Tailscale IP).
 The game renders at the resolution chosen in the menu and is scaled down
 to at most `PARLOR_STREAM_MAX_HEIGHT` pixels tall for the stream (1440,
 which is 3×; rendering at 4× still sharpens it). Fast forward runs up to
-4×. How far you can go depends on the GPU: on a Radeon Vega 8 (a laptop's
-integrated GPU) 2× plays at full speed and fast forwards to about 1.5×,
-while 3× and 4× run below full speed. For those, a discrete NVIDIA GPU
-with NVIDIA's driver and the
+4×, as fast as the server manages. How far you can go depends on the
+GPU and CPU. Measured with a Ryzen 5 3550H: on its Radeon Vega 8 2× plays
+at full speed and fast forwards to about 1.5×, while 3× and 4× run below
+full speed; on a GeForce GTX 1650 3× and 4× play at full speed and fast
+forward to about 2× (the CPU is then the limit). For a discrete NVIDIA GPU,
+use NVIDIA's driver and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/):
 replace `devices` and `group_add` with
 
