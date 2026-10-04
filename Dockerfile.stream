@@ -1,0 +1,50 @@
+# parlor-stream: plays 3DS games on the server's GPU and streams them to
+# the browser. Mesa drives AMD and Intel GPUs; for NVIDIA, the NVIDIA
+# Container Toolkit adds the driver's libraries at run time.
+
+# ── Build ───────────────────────────────────────────────────────────────────
+FROM ubuntu:24.04 AS build
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential pkg-config ca-certificates curl unzip \
+        libegl-dev libgbm-dev libgl-dev libopengl-dev \
+        libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=golang:1.27 /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH
+
+# The Azahar 3DS core, pinned and checked.
+ARG AZAHAR_VERSION=2126.1.2
+ARG AZAHAR_SHA256=184dcb41d0bbf89b9dffeac1573d0b6f8a16648a33abb86e9350d05c93e3f742
+RUN curl -fsSLo /tmp/azahar.zip \
+        "https://github.com/azahar-emu/azahar/releases/download/${AZAHAR_VERSION}/azahar-libretro-linux-x86_64-${AZAHAR_VERSION}.zip" \
+    && echo "${AZAHAR_SHA256}  /tmp/azahar.zip" | sha256sum -c - \
+    && mkdir -p /cores && unzip -q /tmp/azahar.zip -d /cores && test -f /cores/azahar_libretro.so
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ cmd/
+COPY internal/ internal/
+RUN go build -trimpath -ldflags="-s -w" -o /parlor-stream ./cmd/parlor-stream
+
+# ── Runtime ─────────────────────────────────────────────────────────────────
+FROM ubuntu:24.04
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates libegl1 libegl-mesa0 libgbm1 libgl1-mesa-dri libopengl0 libglvnd0 \
+        mesa-va-drivers libavcodec60 libavutil58 libswscale7 libswresample4 \
+    && rm -rf /var/lib/apt/lists/* \
+    && (userdel -r ubuntu 2>/dev/null || true) \
+    && useradd -M -u 1000 -s /usr/sbin/nologin parlor \
+    && mkdir -p /data && chown 1000:1000 /data
+COPY --from=build /cores/azahar_libretro.so /usr/lib/parlor-stream/
+COPY --from=build /parlor-stream /usr/local/bin/parlor-stream
+ENV PARLOR_STREAM_CORES=/usr/lib/parlor-stream \
+    PARLOR_STREAM_DATA=/data \
+    PARLOR_ROMS=/roms \
+    HOME=/data \
+    NVIDIA_DRIVER_CAPABILITIES=graphics,video,compute,utility
+USER 1000:1000
+EXPOSE 8090 8089/udp
+VOLUME ["/data"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD ["parlor-stream", "healthcheck"]
+ENTRYPOINT ["parlor-stream"]
