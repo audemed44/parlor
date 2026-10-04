@@ -4,6 +4,11 @@ import { upload } from "../api";
 import { deviceName } from "../lib";
 import type { Game } from "../types";
 import { ErrorNote } from "./ui";
+import { system } from "../systems";
+
+// The largest base ROM the server patches (it holds two in memory): 32 MiB,
+// the biggest GBA game. DS games are bigger.
+export const MAX_PATCH_BASE = 32 << 20;
 
 // patchTitle suggests a name for the patched game from the patch's file
 // name: "Pokemon Heart and Soul v2.1.bps" → "Pokemon Heart and Soul v2.1".
@@ -95,10 +100,10 @@ export function PatchForm({
         <select value={base} onChange={(e) => setBase(Number(e.currentTarget.value))}>
           <option value={0}>Find it from the patch (UPS, BPS)</option>
           {games
-            .filter((g) => !g.missing)
+            .filter((g) => !g.missing && g.size <= MAX_PATCH_BASE)
             .map((g) => (
               <option value={g.id} key={g.id}>
-                {g.title}
+                {g.title} ({system(g.platform).short})
               </option>
             ))}
         </select>
