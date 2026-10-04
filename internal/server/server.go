@@ -31,6 +31,10 @@ type Server struct {
 	Files         fs.FS
 	// FoyerURL is Foyer, the homelab's start page, linked from the header.
 	FoyerURL string
+	// StreamURL is parlor-stream, which plays 3DS games on the server;
+	// "" when there's none. StreamClient talks to it (nil: a default).
+	StreamURL    string
+	StreamClient *http.Client
 }
 
 // The emulators compile WebAssembly ('wasm-unsafe-eval'). mGBA runs its
@@ -64,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	s.foyerRoutes(mux)
 	s.importRoutes(mux)
 	s.settingsRoutes(mux)
+	s.streamRoutes(mux)
 	if s.Files != nil {
 		files := http.FileServerFS(s.Files)
 		mux.HandleFunc("GET /play", func(w http.ResponseWriter, r *http.Request) {

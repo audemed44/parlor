@@ -48,7 +48,7 @@ func TestMatch(t *testing.T) {
 func TestScan(t *testing.T) {
 	root := t.TempDir()
 	for _, p := range []string{"b.gba", "a.GBA", "sub/c.gba", "notes.txt", ".hidden/d.gba", ".e.gba",
-		"nds/roms/f.nds", "snes/g.sfc", "h.gbc", "i.3ds"} {
+		"nds/roms/f.nds", "snes/g.sfc", "h.gbc", "i.3ds", "j.zip"} {
 		path := filepath.Join(root, p)
 		os.MkdirAll(filepath.Dir(path), 0755)
 		os.WriteFile(path, []byte("rom"), 0644)
@@ -61,7 +61,7 @@ func TestScan(t *testing.T) {
 	for _, f := range files {
 		got = append(got, f.Path)
 	}
-	want := []string{"a.GBA", "b.gba", "h.gbc", "nds/roms/f.nds", "snes/g.sfc", "sub/c.gba"}
+	want := []string{"a.GBA", "b.gba", "h.gbc", "i.3ds", "nds/roms/f.nds", "snes/g.sfc", "sub/c.gba"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -78,14 +78,14 @@ func TestScan(t *testing.T) {
 func TestPlatformOf(t *testing.T) {
 	for path, want := range map[string]string{
 		"a.gba": "gba", "b.GB": "gb", "c.gbc": "gbc", "d.nes": "nes", "e.smc": "snes", "f.sfc": "snes",
-		"g.nds": "nds", "h.3ds": "", "j.zip": "", "k": "",
+		"g.nds": "nds", "h.3ds": "3ds", "i.cci": "3ds", "j.zip": "", "k": "",
 	} {
 		if got := PlatformOf(path); got != want {
 			t.Errorf("PlatformOf(%q) = %q, want %q", path, got, want)
 		}
 	}
 	for path, want := range map[string]string{
-		"saves/nds/Pokemon Platinum.sav": "nds", "retrodeck-saves/n3ds/x.sav": "",
+		"saves/nds/Pokemon Platinum.sav": "nds", "retrodeck-saves/n3ds/x.sav": "3ds", "saves/psx/x.srm": "",
 		"users/1/saves/gba/7/Heart.srm": "gba", "Heart.srm": "", "nds.sav": "",
 	} {
 		if got := PlatformHint(path); got != want {
