@@ -21,6 +21,13 @@ the saves.
   from one button to the next, or press A and B together. Hit zones are
   bigger than the buttons drawn, and the d-pad gives straight directions
   more room than diagonals, so walking a grid doesn't slip.
+- **Layout editor**: Edit layout in the menu lets you drag the touch
+  controls anywhere, resize them and set how see-through they are.
+  Portrait and landscape each have their own layout, kept on the device.
+- **Bluetooth controllers**: Xbox, PlayStation and MFi controllers paired
+  with the phone. While one is connected the touch controls step aside,
+  leaving only a menu button. The left stick works as the d-pad too.
+  Remap the buttons in Settings, per device, including quick save and load.
 - **Keyboard** on desktop: arrows, X/Z for A/B, A/S for L/R, Enter and
   Backspace for Start and Select, F for fast forward, Esc for the menu.
 - **Saves on the server**: whenever the game saves, the save goes to the
@@ -34,20 +41,34 @@ the saves.
   month before. Restore any of them (restoring adds a new version, so
   nothing is lost). Download any as `.srm`, or upload one from another
   emulator.
-- **Import**: a one-time page that finds `.srm` and `.sav` files in an
-  import folder (RomM's assets, copied RetroDECK saves), matches them to
-  games by name (`Pokemon Heart and Soul.srm` → `Pokémon Heart and Soul
-  (v2.0.4).gba`), and adds them to the history dated by the file.
+- **Save states**: four quick slots per game in the menu, each with a
+  screenshot, on the server so any device can load them. Leaving a game
+  (quitting, or switching away on the phone) keeps your place, and the next
+  start, on any device, offers to continue from there.
+- **Import**: a one-time page that finds `.srm` and `.sav` saves and
+  `.state` (RomM) and `.ss1` (mGBA) save states in an import folder
+  (RomM's assets, copied RetroDECK saves), matches them to games by name
+  (`Pokemon Heart and Soul.srm` → `Pokémon Heart and Soul (v2.0.4).gba`),
+  and adds saves to the history dated by the file. A game's newest state
+  goes to "left off", so you carry on from it.
+- **Patches**: apply an `.ips`, `.ups` or `.bps` patch to its clean base
+  ROM. For an update to a hack you play (a new Heart and Soul version),
+  Update with a patch on the game's page makes the new version its own
+  game starting from the old one's save, notes and play time, and hides
+  the old one. UPS and BPS patches find their base ROM by checksum.
+  Patched ROMs are kept in the data folder; the ROM folder stays read-only.
+- **Per-game settings**: the save type and real-time clock (day and night
+  in hacks) when mGBA's detection gets them wrong, and custom covers:
+  upload artwork, or use a save state's screenshot.
 - **Fast forward**: a ▶▶ toggle next to the menu button (F on a keyboard,
   or from the menu). It runs at 2× by default; choose 2×, 3×, 4×, 6× or 8×
   in Settings, which apply to every device.
 - Mute in the in-game menu. The screen stays awake while you play.
+- **Foyer widget**: "Continue: Unbound, 2 h ago" with a link into the
+  game, the games played after it, and play time.
 
 <img src="docs/parlor-phone.png" alt="Playing in portrait on a phone, and the save conflict prompt" width="600">
 
-Still to come: a layout editor, Bluetooth controllers, save states,
-per-game overrides (save type, real-time clock), patching ROM hack updates
-with the save carried over, custom covers and a Foyer widget.
 
 ## Install
 
@@ -78,8 +99,22 @@ needs the page to be cross-origin isolated: Parlor sends the
 itself, and your proxy must pass them through unchanged. On the iPhone,
 open it in Safari and use **Share → Add to Home Screen**.
 
-Keep the data folder in your backups: it holds the database and every save
-version, and they belong together.
+Keep the data folder in your backups: it holds the database, every save
+version, save states, patched ROMs and covers, and they belong together.
+
+### Foyer
+
+Parlor serves a [Foyer](https://github.com/audemed44/foyer) widget at
+`/api/foyer/widget`; Foyer offers to add it in edit mode, or:
+
+```yaml
+      - name: Parlor
+        url: https://parlor.example.com
+        widget:
+          type: app
+          url: http://parlor:8080/api/foyer/widget
+          key: ${PARLOR_TOKEN}
+```
 
 | Variable | Default | |
 | --- | --- | --- |
@@ -95,11 +130,15 @@ version, and they belong together.
 
 ## How saves work
 
-Only in-game saves (what the game writes when you choose Save, `.srm`) are
-kept. Save states aren't yet. A game loads with the newest save from the
-server. Each upload says which version it was made on top of; if that isn't
-the newest any more, the server refuses it and you choose. ROMs are cached
-on the device by checksum, so each game downloads once.
+In-game saves (what the game writes when you choose Save, `.srm`) are the
+ones that count, with their history. A game loads with the newest save from
+the server. Each upload says which version it was made on top of; if that
+isn't the newest any more, the server refuses it and you choose. ROMs are
+cached on the device by checksum, so each game downloads once.
+
+Save states are snapshots on the side: a slot holds one, and saving to it
+again replaces it. Loading a state leaves the in-game save alone, so it
+never rolls a save back; save in the game as usual.
 
 ## Development
 
