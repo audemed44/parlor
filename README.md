@@ -1,19 +1,21 @@
 # Parlor
 
-Your Game Boy Advance, Game Boy, NES, Super Nintendo and DS library,
+Your Game Boy Advance, Game Boy, NES, Super Nintendo, DS and 3DS library,
 playable from any browser and built for the iPhone first, with every game's
 save kept on your server. GBA games run on [mGBA](https://mgba.io)
 compiled to WebAssembly; the other consoles run RetroArch cores through
 [EmulatorJS](https://emulatorjs.org) (FCEUmm, Snes9x, Gambatte and
-melonDS), so saves work in RetroArch-based emulators too. The emulators run
-on your device; the server is a small Go binary that serves the files and
-keeps the saves.
+melonDS), so saves work in RetroArch-based emulators too. Those emulators
+run on your device; the server is a small Go binary that serves the files
+and keeps the saves. The 3DS is too heavy for a phone's browser, so it
+plays on the server's GPU instead and streams to the browser
+([parlor-stream](#3ds-parlor-stream)).
 
 ![The library, with the last game played first](docs/parlor-desktop.png)
 
 - **Library**: scans a folder of ROMs (read-only) every 10 minutes or when
-  you press rescan: `.gba`, `.gb`, `.gbc`, `.nes`, `.sfc`/`.smc` and
-  `.nds`, in any folders (RomM's `<console>/roms` layout works as it is).
+  you press rescan: `.gba`, `.gb`, `.gbc`, `.nes`, `.sfc`/`.smc`,
+  `.nds` and `.3ds`/`.cci`, in any folders (RomM's `<console>/roms` layout works as it is).
   With more than one console there's a filter for each. The last game played comes first, with play
   time, when you last played and when it was last saved. A renamed or
   moved ROM keeps its saves. Each game has its own notes.
@@ -31,6 +33,12 @@ keeps the saves.
   (controls either side). Tap the bottom screen to touch it. DS ROMs are
   sent without their cartridge padding (a 512 MB file is often 280 MB of
   game).
+- **3DS**: played on the server and streamed (see
+  [parlor-stream](#3ds-parlor-stream)), at 1× to 4× the 3DS's resolution,
+  chosen in the menu while playing. Both screens one above the other; tap
+  the bottom one. The d-pad also works the Circle Pad, which 3DS games
+  walk with. Saves and states stay on the server without passing through
+  the phone, and quitting keeps your place like any other game.
 - **Layout editor**: Edit layout in the menu lets you drag the touch
   controls anywhere, resize them and set how see-through they are.
   Portrait and landscape each have their own layout, per console, kept on
@@ -145,6 +153,77 @@ Parlor serves a [Foyer](https://github.com/audemed44/foyer) widget at
 | `HOMEPAGE_URL` | off | Foyer's address, linked from the header |
 | `TZ` | UTC | Which day a save belongs to, for the daily history |
 
+## 3DS: parlor-stream
+
+A 3DS game is far too heavy for a phone's browser (and its ROM is
+gigabytes), so `parlor-stream` plays it on the server's GPU and streams
+the picture and sound to the browser over WebRTC, with your buttons and
+touches going back the same way. It runs beside Parlor, which hands it the
+games: one at a time, and starting one on another device takes it over,
+keeping your place. It uses the [Azahar](https://azahar-emu.org) libretro
+core and needs decrypted 3DS dumps (`.3ds`/`.cci`).
+
+```yaml
+  parlor-stream:
+    image: ghcr.io/audemed44/parlor-stream:latest
+    container_name: parlor-stream
+    restart: unless-stopped
+    environment:
+      - PARLOR_TOKEN=${PARLOR_TOKEN} # the same as Parlor's
+      - PARLOR_URL=http://parlor:8080
+      # The server's addresses browsers reach (e.g. its Tailscale IP).
+      - PARLOR_STREAM_HOSTS=100.64.0.1
+    volumes:
+      - ./romm/library:/roms:ro # the same ROM folder as Parlor's
+      - ./parlor-stream:/data # system files and shader caches
+    devices:
+      - /dev/dri:/dev/dri # AMD or Intel GPU
+    group_add:
+      - "993" # the host's render group: getent group render
+    ports:
+      - "8089:8089/udp" # the stream; keep the same port on both sides
+```
+
+and on Parlor, `PARLOR_STREAM_URL=http://parlor-stream:8090`. The
+streams don't go through your reverse proxy: the browser connects to
+`PARLOR_STREAM_HOSTS` on UDP port 8089 directly, so that address must be
+reachable from your devices (over Tailscale, the server's Tailscale IP).
+
+The game renders at the resolution chosen in the menu and is scaled down
+to at most `PARLOR_STREAM_MAX_HEIGHT` pixels tall for the stream (1440,
+which is 3×; rendering at 4× still sharpens it). Fast forward runs up to
+4×. How far you can go depends on the GPU: on a Radeon Vega 8 (a laptop's
+integrated GPU) 2× plays at full speed and fast forwards to about 1.5×,
+while 3× and 4× run below full speed. For those, a discrete NVIDIA GPU
+with NVIDIA's driver and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/):
+replace `devices` and `group_add` with
+
+```yaml
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+```
+
+parlor-stream then renders on it and encodes with NVENC. Its log reports
+how the game keeps up every 30 s (`performance emulated_fps=...`).
+
+| Variable | Default | |
+| --- | --- | --- |
+| `PARLOR_TOKEN` | required | Parlor's token: Parlor uses it to start games, and parlor-stream to keep saves and states in Parlor |
+| `PARLOR_URL` | `http://parlor:8080` | Parlor, from parlor-stream |
+| `PARLOR_STREAM_HOSTS` | none | Comma-separated IPs browsers reach the server on |
+| `PARLOR_STREAM_UDP_PORT` | `8089` | The stream's UDP port (publish it as the same number) |
+| `PARLOR_STREAM_SCALE` | `2` | Resolution a game starts at, 1 to 4, until changed in the menu |
+| `PARLOR_STREAM_MAX_HEIGHT` | `1440` | Tallest stream, in pixels; taller frames are scaled down |
+| `PARLOR_STREAM_KBPS` | by size | Video bitrate (3 to 20 Mbit/s by default) |
+| `PARLOR_STREAM_GPU` | `auto` | Render node, like `/dev/dri/renderD128`; auto prefers NVIDIA's driver |
+| `PARLOR_STREAM_ENCODER` | `auto` | `vaapi`, `nvenc` or `x264` (CPU) |
+
+A 3DS game's save is a folder of files on its SD card, so Parlor keeps it
+as a `.tar` of that folder; download one from the history to back it up,
+or upload one to restore it.
+
 ## How saves work
 
 In-game saves (what the game writes when you choose Save, `.srm`) are the
@@ -184,6 +263,11 @@ before pushing.
 The mGBA core (`@thenick775/mgba-wasm`, a WebAssembly build of
 [mGBA](https://github.com/mgba-emu/mgba)) is MPL-2.0 and is served as its
 own unmodified files under `/core/`.
+
+parlor-stream's image includes the [Azahar](https://github.com/azahar-emu/azahar)
+libretro core (GPL-2.0), unmodified from its release, and Ubuntu's FFmpeg
+and Mesa libraries; it uses [Pion](https://github.com/pion/webrtc) (MIT)
+for WebRTC and libretro's `libretro.h` (MIT).
 
 [EmulatorJS](https://github.com/EmulatorJS/EmulatorJS) is GPL-3.0, and its
 RetroArch cores have their own licences: FCEUmm and Gambatte GPL-2.0,
