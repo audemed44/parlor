@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import preact from "@preact/preset-vite";
 import { defineConfig } from "vitest/config";
+import { version as ejs } from "./scripts/ejs-version.mjs";
 
 const core = JSON.parse(
   readFileSync("node_modules/@thenick775/mgba-wasm/package.json", "utf8"),
@@ -8,7 +9,7 @@ const core = JSON.parse(
 
 export default defineConfig({
   plugins: [preact()],
-  define: { __CORE_VERSION__: JSON.stringify(core) },
+  define: { __CORE_VERSION__: JSON.stringify(core), __EJS_VERSION__: JSON.stringify(ejs) },
   build: { outDir: "../web/dist", emptyOutDir: true, assetsInlineLimit: 0 },
   server: {
     // The emulator's threads need cross-origin isolation, as in production.

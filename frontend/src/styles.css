@@ -568,6 +568,16 @@ footer {
   background: var(--accent);
   color: #fff;
 }
+.segmented.consoles {
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.tile .console {
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--fg-2);
+}
 
 /* ── Game ──────────────────────────────────────────────────────────────── */
 .facts {
@@ -650,6 +660,9 @@ footer {
 .screen-box {
   position: absolute;
   background: #000;
+  /* EmulatorJS's own z-indexes stay inside: menus and badges go on top. */
+  isolation: isolate;
+  z-index: 0;
 }
 .screen {
   display: block;
@@ -659,6 +672,33 @@ footer {
 }
 .player.touch .screen-box {
   pointer-events: none;
+}
+/* EmulatorJS (every console but the GBA): only its canvas shows; Parlor
+   draws the controls and menus. */
+.ejs-screen,
+.ejs-screen > div,
+.ejs-screen .ejs_canvas_parent {
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+.ejs-screen .ejs_canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  image-rendering: pixelated;
+}
+.ejs-screen .ejs_menu_bar,
+.ejs-screen .ejs_virtualGamepad_parent,
+.ejs-screen .ejs_virtualGamepad_open,
+.ejs-screen .ejs_context_menu,
+.ejs-screen .ejs_popup_container,
+.ejs-screen .ejs_message,
+.ejs-screen .ejs_start_button,
+.ejs-screen .ejs_setting_menu,
+.ejs-screen .ejs_loading_text,
+.ejs-screen .ejs_ad_iframe {
+  display: none !important;
 }
 .controls {
   position: absolute;

@@ -1,5 +1,5 @@
 // ROMs are kept in the browser's Cache Storage, keyed by checksum, so a
-// game downloads once per device (32 MB on a phone adds up).
+// game downloads once per device (a DS game is hundreds of MB).
 const CACHE = "parlor-roms";
 
 function key(id: number, sha1: string) {
@@ -25,21 +25,23 @@ export async function loadROM(
   }
   const total = Number(res.headers.get("Content-Length") ?? 0);
   const reader = res.body!.getReader();
-  const chunks: Uint8Array[] = [];
+  // Into one buffer of the ROM's size as it arrives: a DS game can be
+  // 280 MiB, and a phone can't hold it twice.
+  let rom = new Uint8Array(total);
   let got = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    if (got + value.length > rom.length) {
+      const more = new Uint8Array(Math.max(rom.length * 2, got + value.length));
+      more.set(rom.subarray(0, got));
+      rom = more;
+    }
+    rom.set(value, got);
     got += value.length;
     if (total) progress(got / total);
   }
-  const rom = new Uint8Array(got);
-  let at = 0;
-  for (const c of chunks) {
-    rom.set(c, at);
-    at += c.length;
-  }
+  if (got < rom.length) rom = rom.slice(0, got);
   if (cache) {
     // Drop older copies of this game, then keep this one.
     for (const req of await cache.keys()) {

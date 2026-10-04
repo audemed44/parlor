@@ -28,6 +28,9 @@ export interface Game {
   id: number;
   path: string;
   title: string;
+  // The console, from the ROM's extension: "gba", "gb", "gbc", "nes",
+  // "snes" or "nds".
+  platform: string;
   size: number;
   sha1: string;
   missing: boolean;
@@ -68,7 +71,7 @@ export interface Settings {
 
 export const fastForwardSpeeds = [2, 3, 4, 6, 8];
 
-// The save types a game can be set to, as mGBA names them.
+// The save types a GBA game can be set to, as mGBA names them.
 export const saveTypes: [string, string][] = [
   ["", "Detect"],
   ["SRAM", "SRAM 32 KB"],

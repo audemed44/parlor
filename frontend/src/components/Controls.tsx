@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import {
   centre,
+  hit,
   pressed,
   shapeAt,
   type Action,
@@ -28,6 +29,7 @@ export function Controls({
   toggled,
   fastLabel,
   editing,
+  onTouchScreen,
 }: {
   layout: Layout;
   onKey: (key: Key, down: boolean) => void;
@@ -37,6 +39,9 @@ export function Controls({
   toggled: Set<Action>;
   fastLabel: string;
   editing?: Editing;
+  // A finger on the layout's touch part (the DS's bottom screen), not on
+  // a control: it goes to the game as a mouse, in page coordinates.
+  onTouchScreen?: (type: "mousedown" | "mousemove" | "mouseup", x: number, y: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const touches = useRef(new Map<number, { x: number; y: number }>());
@@ -44,8 +49,12 @@ export function Controls({
   const [lit, setLit] = useState<Set<Press>>(new Set());
   const shapes = useRef(layout.shapes);
   shapes.current = layout.shapes;
-  const handlers = useRef({ onKey, onAction, editing });
-  handlers.current = { onKey, onAction, editing };
+  const handlers = useRef({ onKey, onAction, editing, onTouchScreen });
+  handlers.current = { onKey, onAction, editing, onTouchScreen };
+  const area = useRef(layout.touch);
+  area.current = layout.touch;
+  // The finger on the touch screen; the DS has room for one.
+  const screenFinger = useRef<number | null>(null);
   // The control being dragged in the editor, and where on it the finger is.
   const drag = useRef<{ pointer: number; id: string; dx: number; dy: number } | null>(null);
 
@@ -83,10 +92,32 @@ export function Controls({
         }
         return;
       }
-      touches.current.set(e.pointerId, point(e));
+      const p = point(e);
+      const t = area.current;
+      const send = handlers.current.onTouchScreen;
+      if (
+        t &&
+        send &&
+        screenFinger.current === null &&
+        p.x >= t.x &&
+        p.x <= t.x + t.w &&
+        p.y >= t.y &&
+        p.y <= t.y + t.h &&
+        hit(shapes.current, p.x, p.y).length === 0
+      ) {
+        screenFinger.current = e.pointerId;
+        send("mousedown", e.clientX, e.clientY);
+        return;
+      }
+      touches.current.set(e.pointerId, p);
       update();
     };
     const move = (e: PointerEvent) => {
+      if (screenFinger.current === e.pointerId) {
+        e.preventDefault();
+        handlers.current.onTouchScreen?.("mousemove", e.clientX, e.clientY);
+        return;
+      }
       const d = drag.current;
       if (d && d.pointer === e.pointerId) {
         e.preventDefault();
@@ -100,6 +131,11 @@ export function Controls({
       update();
     };
     const up = (e: PointerEvent) => {
+      if (screenFinger.current === e.pointerId) {
+        screenFinger.current = null;
+        handlers.current.onTouchScreen?.("mouseup", e.clientX, e.clientY);
+        return;
+      }
       if (drag.current?.pointer === e.pointerId) drag.current = null;
       if (!touches.current.delete(e.pointerId)) return;
       update();
@@ -107,6 +143,10 @@ export function Controls({
     // Releasing everything when the page loses focus avoids a stuck button.
     const release = () => {
       touches.current.clear();
+      if (screenFinger.current !== null) {
+        screenFinger.current = null;
+        handlers.current.onTouchScreen?.("mouseup", 0, 0);
+      }
       update();
     };
     el.addEventListener("pointerdown", down);
