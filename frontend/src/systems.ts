@@ -1,9 +1,10 @@
 // The consoles Parlor plays, and what each needs: which emulator, the
-// screen's size, which buttons it has. The GBA runs on mGBA; the rest on
-// RetroArch cores through EmulatorJS.
+// screen's size, which buttons it has. The GBA runs on mGBA; the 3DS on
+// the server, streamed (stream.ts); the rest on RetroArch cores through
+// EmulatorJS.
 import type { Key } from "./controls";
 
-export type Platform = "gba" | "gb" | "gbc" | "nes" | "snes" | "nds";
+export type Platform = "gba" | "gb" | "gbc" | "nes" | "snes" | "nds" | "3ds";
 
 export interface System {
   id: Platform;
@@ -12,10 +13,12 @@ export interface System {
   // EmulatorJS's name for the console and the core it runs; none for the
   // GBA, which is mGBA's.
   ejs?: { system: string; core: string; saveDir: string; saveExt: string };
+  // Played on the server (parlor-stream) and streamed to the browser.
+  stream?: boolean;
   // The screen in CSS pixels at 1×: both DS screens, one above the other.
   screen: { w: number; h: number };
   keys: Key[];
-  // The DS's bottom screen takes taps: its box within the screen, as
+  // The DS's and 3DS's bottom screen takes taps: its box within the screen, as
   // fractions of it.
   touch?: { x: number; y: number; w: number; h: number };
 }
@@ -75,6 +78,16 @@ export const systems: Record<Platform, System> = {
     screen: { w: 256, h: 384 },
     keys: big,
     touch: { x: 0, y: 0.5, w: 1, h: 0.5 },
+  },
+  "3ds": {
+    id: "3ds",
+    short: "3DS",
+    name: "Nintendo 3DS",
+    stream: true,
+    // The top screen (400×240) over the bottom one (320×240), centred.
+    screen: { w: 400, h: 480 },
+    keys: big,
+    touch: { x: 0.1, y: 0.5, w: 0.8, h: 0.5 },
   },
 };
 

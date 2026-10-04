@@ -29,7 +29,7 @@ export interface Game {
   path: string;
   title: string;
   // The console, from the ROM's extension: "gba", "gb", "gbc", "nes",
-  // "snes" or "nds".
+  // "snes", "nds" or "3ds".
   platform: string;
   size: number;
   sha1: string;
@@ -67,6 +67,8 @@ export interface Config {
 
 export interface Settings {
   fast_forward: number;
+  // Whether parlor-stream is set up, to play the 3DS.
+  stream: boolean;
 }
 
 export const fastForwardSpeeds = [2, 3, 4, 6, 8];

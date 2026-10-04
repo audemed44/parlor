@@ -328,5 +328,13 @@ export async function ejs(sys: System): Promise<Core> {
 }
 
 function extension(sys: System): string {
-  return { gb: ".gb", gbc: ".gbc", nes: ".nes", snes: ".sfc", nds: ".nds", gba: ".gba" }[sys.id];
+  return {
+    gb: ".gb",
+    gbc: ".gbc",
+    nes: ".nes",
+    snes: ".sfc",
+    nds: ".nds",
+    gba: ".gba",
+    "3ds": ".3ds",
+  }[sys.id];
 }
