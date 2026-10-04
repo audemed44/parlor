@@ -10,7 +10,8 @@ import {
   VolumeX,
 } from "lucide-preact";
 import { api, bytes, putBytes } from "../api";
-import { layout as placeControls, type Key, type Layout } from "../controls";
+import { layout as placeControls, padLayout, type Key, type Layout } from "../controls";
+import { loadBindings, pads, read, type Control } from "../gamepad";
 import { Controls } from "./Controls";
 import {
   afterStart,
@@ -73,6 +74,9 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   const [area, setArea] = useState<Layout | null>(null);
   const [states, setStates] = useState<State[]>([]);
   const [slotNote, setSlotNote] = useState("");
+  // A controller is connected: the touch controls step aside.
+  const [padOn, setPadOn] = useState(() => pads().length > 0);
+  const [toast, setToast] = useState("");
 
   const areaRef = useRef<HTMLDivElement>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -95,17 +99,35 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     const el = areaRef.current!;
     const measure = () => {
       const { width, height } = el.getBoundingClientRect();
-      setArea(touch ? placeControls(width, height) : desktopLayout(width, height));
+      if (!touch) setArea(desktopLayout(width, height));
+      else setArea(padOn ? padLayout(width, height) : placeControls(width, height));
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
+  }, [padOn]);
+
+  useEffect(() => {
+    const update = () => setPadOn(pads().length > 0);
+    window.addEventListener("gamepadconnected", update);
+    window.addEventListener("gamepaddisconnected", update);
+    return () => {
+      window.removeEventListener("gamepadconnected", update);
+      window.removeEventListener("gamepaddisconnected", update);
+    };
   }, []);
 
   useEffect(() => {
     holder.current?.appendChild(screen());
   }, [area !== null]);
+
+  // A message over the game for a moment (quick save and load).
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(""), 2200);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   // Load everything; the game starts on a tap.
   useEffect(() => {
@@ -316,6 +338,43 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     else if (phase === "playing") resume();
   }, [menu, clash]);
 
+  // Controllers are read every frame while the game is up. The newest
+  // handlers are kept in a ref, since the loop outlives renders.
+  const latest = useRef({ menu, clash, toggleFast, saveSlot, loadSlot });
+  latest.current = { menu, clash, toggleFast, saveSlot, loadSlot };
+  useEffect(() => {
+    if (phase !== "playing") return;
+    const bindings = loadBindings();
+    let held = new Set<Control>();
+    let frame = 0;
+    const tick = () => {
+      frame = requestAnimationFrame(tick);
+      const now = new Set<Control>();
+      for (const p of pads()) for (const c of read(p, bindings)) now.add(c);
+      if (now.size) setPadOn(true);
+      const ui = latest.current;
+      for (const c of held) if (!now.has(c) && isKey(c)) key(c, false);
+      for (const c of now) {
+        if (held.has(c)) continue;
+        if (isKey(c)) {
+          if (!ui.menu && !ui.clash) key(c, true);
+        } else if (c === "Menu") {
+          if (!ui.clash) setMenu((m) => !m);
+        } else if (!ui.menu && !ui.clash) {
+          if (c === "Fast") ui.toggleFast();
+          else if (c === "SaveState") ui.saveSlot(1, true);
+          else if (c === "LoadState") ui.loadSlot(1, true);
+        }
+      }
+      held = now;
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      for (const c of held) if (isKey(c)) key(c, false);
+    };
+  }, [phase]);
+
   // Desktop: Escape opens the menu, F toggles fast forward.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -354,36 +413,41 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     await sendState(p);
   }
 
-  async function saveSlot(slot: number) {
+  // saveSlot and loadSlot report in the menu, or over the game when a
+  // controller button did it (quick).
+  async function saveSlot(slot: number, quick = false) {
     const m = core.current;
     if (!m) return;
+    const note = quick ? setToast : setSlotNote;
     const data = captureState(m, id, slot);
     if (!data) {
-      setSlotNote("mGBA couldn't take a save state.");
+      note("mGBA couldn't take a save state.");
       return;
     }
-    setSlotNote("Saving…");
+    note("Saving…");
     try {
       const q = new URLSearchParams({ device: deviceName() });
       const v = await putBytes<State>(`games/${id}/states/${slot}?${q}`, data.slice());
       setStates((list) => [...list.filter((x) => x.slot !== slot), v]);
-      setSlotNote(`Saved to slot ${slot}`);
+      note(`Saved to slot ${slot}`);
     } catch (e) {
-      setSlotNote(`Couldn't save to slot ${slot}: ${(e as Error).message}`);
+      note(`Couldn't save to slot ${slot}: ${(e as Error).message}`);
     }
   }
 
-  async function loadSlot(slot: number) {
+  async function loadSlot(slot: number, quick = false) {
     const m = core.current;
     if (!m) return;
-    setSlotNote("Loading…");
+    const note = quick ? setToast : setSlotNote;
+    note("Loading…");
     try {
       const got = await bytes(`games/${id}/states/${slot}`);
       if (!got || !restoreState(m, id, slot, got.data)) throw new Error("mGBA couldn't load it");
-      setSlotNote(`Loaded slot ${slot}`);
+      note(`Loaded slot ${slot}`);
+      if (quick && !paused.current) m.resumeGame();
       setMenu(false);
     } catch (e) {
-      setSlotNote(`Couldn't load slot ${slot}: ${(e as Error).message}`);
+      note(`Couldn't load slot ${slot}: ${(e as Error).message}`);
     }
   }
 
@@ -493,6 +557,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
           </div>
         )}
         {phase === "playing" && <SaveBadge status={status} />}
+        {toast && <div class="toast">{toast}</div>}
       </div>
 
       {phase !== "playing" && (
@@ -627,6 +692,10 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
       )}
     </div>
   );
+}
+
+function isKey(c: Control): c is Key {
+  return c !== "Fast" && c !== "Menu" && c !== "SaveState" && c !== "LoadState";
 }
 
 function SaveBadge({ status, inline }: { status: Status; inline?: boolean }) {
