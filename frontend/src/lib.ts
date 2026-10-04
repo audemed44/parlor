@@ -72,3 +72,8 @@ export function coverText(title: string): string {
     .trim();
   return t || title;
 }
+
+// plural: "1 game", "3 games".
+export function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}

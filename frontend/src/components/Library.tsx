@@ -1,8 +1,9 @@
 import { useMemo, useState } from "preact/hooks";
 import { Play, RefreshCw, Search, Wand2 } from "lucide-preact";
 import { api } from "../api";
-import { ago, duration } from "../lib";
+import { ago, duration, plural } from "../lib";
 import type { Game, ScanResult } from "../types";
+import { coverURL } from "../covers";
 import { Cover } from "./Cover";
 import { Empty, ErrorNote, Section } from "./ui";
 import { Unsent } from "./Unsent";
@@ -28,7 +29,7 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
     try {
       const r = await api<ScanResult>("library/scan", {});
       setNote(
-        `${r.total} games` +
+        plural(r.total, "game") +
           (r.added ? ` · ${r.added} new` : "") +
           (r.missing ? ` · ${r.missing} missing` : ""),
       );
@@ -46,7 +47,7 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
       {recent && (
         <section class="continue">
           <a class="continue-cover" href={`#/game/${recent.id}`}>
-            <Cover title={recent.title} big />
+            <Cover title={recent.title} big src={coverURL(recent)} />
           </a>
           <div class="continue-text">
             <span class="eyebrow">
@@ -81,7 +82,7 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
       <section>
         <Section index="01" title="Library">
           <span class="muted mono small">
-            {note || `${games.filter((g) => !g.missing && !g.hidden).length} games`}
+            {note || plural(games.filter((g) => !g.missing && !g.hidden).length, "game")}
           </span>
           <a class="icon-btn" href="#/patch" title="Patch a ROM hack">
             <Wand2 size={16} />
@@ -115,7 +116,7 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
                 href={`#/game/${g.id}`}
                 key={g.id}
               >
-                <Cover title={g.title} />
+                <Cover title={g.title} src={coverURL(g)} />
                 <strong>{g.title}</strong>
                 <span class="hint">
                   {g.missing

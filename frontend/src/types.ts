@@ -38,6 +38,7 @@ export interface Game {
   save_type: string;
   rtc: "" | "on" | "off";
   hidden: boolean;
+  cover: string;
   save: Save | null;
 }
 
