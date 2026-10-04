@@ -31,6 +31,8 @@ export interface Layout {
   screen: { x: number; y: number; w: number; h: number };
   // Controls drawn over the game rather than beside it.
   landscape?: boolean;
+  // How opaque the controls are, when set in the layout editor.
+  opacity?: number;
 }
 
 // layout places the controls for an area of w×h CSS pixels. Portrait: the
@@ -94,6 +96,74 @@ export function layout(w: number, h: number): Layout {
       },
     ],
   };
+}
+
+// A layout of your own, per orientation, made in the layout editor: where
+// each control's centre is (as a fraction of the area, so it survives the
+// area changing size), how much bigger or smaller it is, and how opaque the
+// controls are. Controls not in it stay where the default layout puts them.
+export interface Custom {
+  opacity?: number;
+  shapes: Record<string, { x: number; y: number; scale: number }>;
+}
+export type Customs = { portrait?: Custom; landscape?: Custom };
+
+export const MIN_SCALE = 0.6;
+export const MAX_SCALE = 1.8;
+
+export function centre(s: Shape): { x: number; y: number } {
+  return s.kind === "rect" ? { x: s.x + s.w / 2, y: s.y + s.h / 2 } : { x: s.x, y: s.y };
+}
+
+// customize applies a custom layout to the default one for a w×h area.
+// Controls are kept inside the area.
+export function customize(base: Layout, c: Custom | undefined, w: number, h: number): Layout {
+  if (!c) return base;
+  const shapes = base.shapes.map((s): Shape => {
+    const o = c.shapes[s.id];
+    if (!o) return s;
+    const k = Math.min(MAX_SCALE, Math.max(MIN_SCALE, o.scale));
+    if (s.kind === "rect") {
+      const sw = s.w * k;
+      const sh = s.h * k;
+      const x = clamp(o.x * w - sw / 2, 0, w - sw);
+      const y = clamp(o.y * h - sh / 2, 0, h - sh);
+      return { ...s, x, y, w: sw, h: sh };
+    }
+    const r = s.r * k;
+    return { ...s, x: clamp(o.x * w, r, w - r), y: clamp(o.y * h, r, h - r), r };
+  });
+  return { ...base, shapes, opacity: c.opacity };
+}
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.min(Math.max(v, lo), Math.max(lo, hi));
+}
+
+// shapeAt is the control drawn under (x, y), for picking one up in the
+// editor; a little slack makes small ones easier to grab.
+export function shapeAt(shapes: Shape[], x: number, y: number): Shape | null {
+  for (const s of [...shapes].reverse()) {
+    if (s.kind === "rect") {
+      if (x >= s.x - 8 && x <= s.x + s.w + 8 && y >= s.y - 8 && y <= s.y + s.h + 8) return s;
+    } else if (Math.hypot(x - s.x, y - s.y) <= s.r + 8) return s;
+  }
+  return null;
+}
+
+const STORAGE = "parlor-layout";
+
+export function loadCustoms(): Customs {
+  try {
+    const v = JSON.parse(localStorage.getItem(STORAGE) ?? "{}");
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveCustoms(c: Customs) {
+  localStorage.setItem(STORAGE, JSON.stringify(c));
 }
 
 // padLayout is for playing with a controller on a touch screen: the game
