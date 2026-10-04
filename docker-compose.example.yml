@@ -1,5 +1,6 @@
-# Parlor serves your GBA ROMs to the browser, where mGBA runs, and keeps
-# every game's save on the server. Put it in your main stack.
+# Parlor serves your GBA, Game Boy, NES, SNES and DS ROMs to the browser,
+# where the emulators run, and keeps every game's save on the server. Put
+# it in your main stack.
 services:
   parlor:
     image: ghcr.io/audemed44/parlor:latest
@@ -19,7 +20,7 @@ services:
       # Session cookies need HTTPS. Set false only for plain-HTTP testing.
       # - PARLOR_SECURE_COOKIES=false
     volumes:
-      - ./romm/library/gba/roms:/roms:ro # your .gba files, read-only
+      - ./romm/library:/roms:ro # your ROMs (RomM's <console>/roms folders), read-only
       - ./parlor:/data # the database and every save version; back it up
       - ./romm/assets:/import:ro
     ports:
