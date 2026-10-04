@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { ArrowLeft, Download, History, Play, Trash2, Upload } from "lucide-preact";
 import { api, upload } from "../api";
 import { ago, deviceName, duration, size, sources, when } from "../lib";
-import type { GameDetail as Detail, Save, State } from "../types";
+import { saveTypes, type GameDetail as Detail, type Save, type State } from "../types";
 import { Cover } from "./Cover";
 import { ErrorNote, Section } from "./ui";
 
@@ -58,6 +58,20 @@ export function GameDetail({ id, onChange }: { id: number; onChange: () => void 
     try {
       await api(`games/${id}/states/${v.slot}`, undefined, "DELETE");
       changed();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function setOverrides(change: Partial<Pick<Detail, "save_type" | "rtc">>) {
+    if (!game) return;
+    try {
+      const g = await api<Detail>(`games/${id}/settings`, {
+        save_type: game.save_type,
+        rtc: game.rtc,
+        ...change,
+      });
+      setGame({ ...game, save_type: g.save_type, rtc: g.rtc });
     } catch (e) {
       setError((e as Error).message);
     }
@@ -216,6 +230,52 @@ export function GameDetail({ id, onChange }: { id: number; onChange: () => void 
             ))}
           </div>
         )}
+      </section>
+
+      <section>
+        <Section index="04" title="Game settings" />
+        <p class="hint section-note">
+          mGBA detects these for nearly every game, and gives Pokémon ROM hacks Flash 128 KB and a
+          clock. Change them only when a game can't save or its day and night don't follow the time.
+          They apply the next time the game starts, on every device.
+        </p>
+        <div class="settings-grid">
+          <span class="eyebrow">Save type</span>
+          <select
+            aria-label="Save type"
+            value={game.save_type}
+            onChange={(e) => setOverrides({ save_type: e.currentTarget.value })}
+          >
+            {saveTypes.map(([value, label]) => (
+              <option value={value} key={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <span class="eyebrow">Real-time clock</span>
+          <div class="segmented" role="radiogroup" aria-label="Real-time clock">
+            {(
+              [
+                ["", "Detect"],
+                ["on", "On"],
+                ["off", "Off"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={game.rtc === value}
+                class={game.rtc === value ? "on" : ""}
+                onClick={() => setOverrides({ rtc: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p class="hint section-note">
+          The clock is this device's: the game's day and night follow the time where you play.
+        </p>
       </section>
     </div>
   );

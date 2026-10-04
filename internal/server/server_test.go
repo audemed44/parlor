@@ -279,6 +279,19 @@ func TestStates(t *testing.T) {
 	}
 }
 
+func TestGameSettings(t *testing.T) {
+	h := setup(t)
+	resp, body := h.do("POST", "/api/games/1/settings", map[string]any{"save_type": "FLASH1M", "rtc": "on"})
+	var g store.Game
+	json.Unmarshal(body, &g)
+	if resp.StatusCode != 200 || g.SaveType != "FLASH1M" || g.RTC != "on" {
+		t.Fatalf("set: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ = h.do("POST", "/api/games/1/settings", map[string]any{"save_type": "CARD"}); resp.StatusCode != 400 {
+		t.Fatalf("bad: %d", resp.StatusCode)
+	}
+}
+
 func itoa(n int64) string {
 	b, _ := json.Marshal(n)
 	return string(b)

@@ -237,7 +237,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     if (!m || !rom.current || clash || !game) return;
     try {
       for (const [sdl, key] of keyboard) m.bindKey(sdl, key);
-      start(m, id, rom.current, initial.current);
+      start(m, id, rom.current, initial.current, { saveType: game.save_type, rtc: game.rtc });
       listen(m);
       const state = carryOn ? resumeFrom.current : null;
       if (state) {

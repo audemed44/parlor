@@ -306,3 +306,23 @@ func TestStates(t *testing.T) {
 		t.Fatalf("not marked imported: %+v", cands)
 	}
 }
+
+func TestOverrides(t *testing.T) {
+	s := open(t)
+	root := t.TempDir()
+	write(t, root, "Game.gba", "rom")
+	s.Scan(root)
+	if err := s.SetOverrides(1, "FLASH1M", "on"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOverrides(1, "FLASH2M", ""); !errors.Is(err, ErrInvalidSetting) {
+		t.Fatalf("bad save type: %v", err)
+	}
+	if err := s.SetOverrides(1, "", "sometimes"); !errors.Is(err, ErrInvalidSetting) {
+		t.Fatalf("bad rtc: %v", err)
+	}
+	g, _ := s.Game(1)
+	if g.SaveType != "FLASH1M" || g.RTC != "on" {
+		t.Fatalf("%+v", g)
+	}
+}
