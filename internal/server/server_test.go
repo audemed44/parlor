@@ -395,6 +395,30 @@ func TestPatch(t *testing.T) {
 	}
 }
 
+func TestCovers(t *testing.T) {
+	h := setup(t)
+	png := append([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"), make([]byte, 64)...)
+	if resp, _ := h.form("/api/games/1/cover", nil, "cover.txt", []byte("not an image")); resp.StatusCode != 400 {
+		t.Fatalf("text accepted: %d", resp.StatusCode)
+	}
+	resp, body := h.form("/api/games/1/cover", nil, "cover.png", png)
+	var g store.Game
+	json.Unmarshal(body, &g)
+	if resp.StatusCode != 200 || g.Cover == "" {
+		t.Fatalf("upload: %d %s", resp.StatusCode, body)
+	}
+	resp, body = h.do("GET", "/api/games/1/cover?v="+g.Cover, nil)
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "image/png" || !bytes.Equal(body, png) {
+		t.Fatalf("get: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if resp, _ = h.do("DELETE", "/api/games/1/cover", nil); resp.StatusCode != 200 {
+		t.Fatalf("delete: %d", resp.StatusCode)
+	}
+	if resp, _ = h.do("GET", "/api/games/1/cover", nil); resp.StatusCode != 404 {
+		t.Fatalf("after delete: %d", resp.StatusCode)
+	}
+}
+
 func itoa(n int64) string {
 	b, _ := json.Marshal(n)
 	return string(b)

@@ -28,8 +28,10 @@ type Game struct {
 	RTC      string `json:"rtc"`
 	// Hidden games are left out of the library grid (an old version of a
 	// hack, say), but keep their saves.
-	Hidden bool  `json:"hidden"`
-	Save   *Save `json:"save"`
+	Hidden bool `json:"hidden"`
+	// Cover changes whenever a custom cover is uploaded; "" for none.
+	Cover string `json:"cover"`
+	Save  *Save  `json:"save"`
 }
 
 // Patched is the path prefix of ROMs Parlor made by applying a patch. They
@@ -182,12 +184,12 @@ func (s *Store) Scan(root string) (ScanResult, error) {
 	return res, err
 }
 
-const gameColumns = "id, path, title, size, sha1, missing, added, last_played, play_seconds, notes, save_type, rtc, hidden"
+const gameColumns = "id, path, title, size, sha1, missing, added, last_played, play_seconds, notes, save_type, rtc, hidden, cover"
 
 func scanGame(row interface{ Scan(...any) error }) (Game, error) {
 	var g Game
 	err := row.Scan(&g.ID, &g.Path, &g.Title, &g.Size, &g.SHA1, &g.Missing, &g.Added, &g.LastPlayed, &g.PlaySeconds, &g.Notes,
-		&g.SaveType, &g.RTC, &g.Hidden)
+		&g.SaveType, &g.RTC, &g.Hidden, &g.Cover)
 	return g, err
 }
 

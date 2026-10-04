@@ -452,6 +452,17 @@ footer {
   border: 1px solid var(--line);
   overflow: hidden;
 }
+.cover.image {
+  padding: 0;
+  background: #000;
+}
+.cover.image img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 .cover-mark {
   position: absolute;
   top: 12px;
@@ -973,8 +984,11 @@ footer {
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 24px 22px;
 }
-.state-grid .btn {
-  align-self: flex-start;
+.state-actions,
+.cover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .slots {
   display: grid;
@@ -1073,7 +1087,7 @@ footer {
   .continue .btn.big {
     align-self: stretch;
   }
-  .detail .continue-cover {
+  .detail:not(.has-cover) .continue-cover {
     display: none;
   }
   .grid {

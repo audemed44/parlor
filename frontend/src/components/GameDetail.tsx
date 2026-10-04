@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { ArrowLeft, Download, History, Play, Trash2, Upload } from "lucide-preact";
+import { ArrowLeft, Download, History, ImageIcon, Play, Trash2, Upload } from "lucide-preact";
+import { coverURL, shrink } from "../covers";
 import { api, upload } from "../api";
 import { ago, deviceName, duration, size, sources, when } from "../lib";
 import { saveTypes, type Game, type GameDetail as Detail, type Save, type State } from "../types";
@@ -21,6 +22,7 @@ export function GameDetail({
     [error, setError] = useState(""),
     [version, setVersion] = useState(0);
   const file = useRef<HTMLInputElement>(null);
+  const coverFile = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api<Detail>(`games/${id}`)
@@ -88,6 +90,22 @@ export function GameDetail({
     }
   }
 
+  async function setCover(image: Blob | null) {
+    try {
+      if (image) await upload(`games/${id}/cover`, new File([await shrink(image)], "cover.jpg"));
+      else await api(`games/${id}/cover`, undefined, "DELETE");
+      changed();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  // A save state's screenshot makes a good cover for a hack.
+  async function stateCover(v: State) {
+    const res = await fetch(`/api/games/${id}/states/${v.slot}/image`);
+    if (res.ok) await setCover(await res.blob());
+  }
+
   async function uploadSave(f: File) {
     try {
       await upload(`games/${id}/saves`, f, { device: deviceName() });
@@ -104,9 +122,9 @@ export function GameDetail({
       <a class="text-link back" href="#/">
         <ArrowLeft size={14} /> Library
       </a>
-      <section class="continue detail">
+      <section class={"continue detail" + (game.cover ? " has-cover" : "")}>
         <div class="continue-cover">
-          <Cover title={game.title} big />
+          <Cover title={game.title} big src={coverURL(game)} />
         </div>
         <div class="continue-text">
           <span class="eyebrow">
@@ -234,9 +252,16 @@ export function GameDetail({
                     {v.note ? ` · ${v.note}` : ""}
                   </span>
                 </div>
-                <button class="btn small" onClick={() => dropState(v)}>
-                  <Trash2 size={13} /> Delete
-                </button>
+                <div class="state-actions">
+                  {v.image && (
+                    <button class="btn small" onClick={() => stateCover(v)}>
+                      <ImageIcon size={13} /> Use as cover
+                    </button>
+                  )}
+                  <button class="btn small" onClick={() => dropState(v)}>
+                    <Trash2 size={13} /> Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -288,6 +313,28 @@ export function GameDetail({
           The clock is this device's: the game's day and night follow the time where you play.
         </p>
         <div class="settings-grid">
+          <span class="eyebrow">Cover</span>
+          <div class="cover-actions">
+            <button class="btn" onClick={() => coverFile.current?.click()}>
+              <ImageIcon size={15} /> {game.cover ? "Change" : "Upload an image"}
+            </button>
+            {game.cover && (
+              <button class="btn" onClick={() => setCover(null)}>
+                Remove
+              </button>
+            )}
+            <input
+              ref={coverFile}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                const f = e.currentTarget.files?.[0];
+                if (f) setCover(f);
+                e.currentTarget.value = "";
+              }}
+            />
+          </div>
           <span class="eyebrow">Library</span>
           <div class="segmented" role="radiogroup" aria-label="Library">
             {(
