@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/audemed44/parlor/internal/store"
 	"github.com/audemed44/parlor/internal/testrom"
@@ -416,6 +417,41 @@ func TestCovers(t *testing.T) {
 	}
 	if resp, _ = h.do("GET", "/api/games/1/cover", nil); resp.StatusCode != 404 {
 		t.Fatalf("after delete: %d", resp.StatusCode)
+	}
+}
+
+func TestFoyerWidget(t *testing.T) {
+	h := setup(t)
+	resp, body := h.do("GET", "/api/foyer/widget", nil)
+	if resp.StatusCode != 200 || !strings.Contains(string(body), `"items":[]`) {
+		t.Fatalf("before playing: %d %s", resp.StatusCode, body)
+	}
+	h.do("POST", "/api/games/1/played", map[string]int{"seconds": 120})
+	_, body = h.do("GET", "/api/foyer/widget", nil)
+	var w struct {
+		Version int `json:"version"`
+		Stats   []struct{ Label, Value string }
+		Items   []struct{ Title, Subtitle, URL string }
+	}
+	json.Unmarshal(body, &w)
+	if w.Version != 1 || len(w.Items) != 1 || w.Items[0].Title != "Continue: Parlor Test" ||
+		w.Items[0].URL != "/#/play/1" || w.Items[0].Subtitle != "just now · 2 min played" || w.Stats[0].Value != "1" {
+		t.Fatalf("widget: %s", body)
+	}
+}
+
+func TestAgo(t *testing.T) {
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	for stamp, want := range map[string]string{
+		"2026-10-04T11:59:30.000Z": "just now",
+		"2026-10-04T11:15:00.000Z": "45 min ago",
+		"2026-10-04T10:00:00.000Z": "2 h ago",
+		"2026-10-03T09:00:00.000Z": "yesterday",
+		"2026-09-30T09:00:00.000Z": "4 days ago",
+	} {
+		if got := ago(stamp, now); got != want {
+			t.Errorf("%s: %q, want %q", stamp, got, want)
+		}
 	}
 }
 

@@ -49,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	s.stateRoutes(mux)
 	s.patchRoutes(mux)
 	s.coverRoutes(mux)
+	s.foyerRoutes(mux)
 	s.importRoutes(mux)
 	s.settingsRoutes(mux)
 	if s.Files != nil {
