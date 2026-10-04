@@ -34,6 +34,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Libraries for parlor-stream (cgo)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl-dev libgbm-dev libgl-dev libopengl-dev \
+            libavcodec-dev libavutil-dev libswscale-dev libswresample-dev
       - name: Placeholder frontend for go:embed
         run: mkdir -p web/dist && echo '<!doctype html>' > web/dist/index.html
       - name: Format
