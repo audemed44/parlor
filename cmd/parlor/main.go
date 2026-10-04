@@ -79,6 +79,8 @@ func main() {
 		SecureCookies: env("PARLOR_SECURE_COOKIES", "true") == "true",
 		Files:         dist,
 		FoyerURL:      foyerURL(),
+		// parlor-stream, which plays 3DS games on the server.
+		StreamURL: os.Getenv("PARLOR_STREAM_URL"),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

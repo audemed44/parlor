@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"net/http"
@@ -58,12 +59,29 @@ func (s *Server) stateRoutes(mux *http.ServeMux) {
 		}
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-		http.ServeContent(w, r, "", modTime(v.Created), f)
+		w.Header().Set("Last-Modified", modTime(v.Created).UTC().Format(http.TimeFormat))
+		writePicture(w, f)
 	})
 	mux.HandleFunc("PUT /api/games/{id}/states/{slot}", func(w http.ResponseWriter, r *http.Request) {
 		n := slot(r)
 		if n < 0 {
 			failure(w, 400, store.ErrInvalidSlot.Error())
+			return
+		}
+		// at is when the player took the state; one that waited offline
+		// doesn't replace a newer one.
+		at, _ := time.Parse(time.RFC3339, r.URL.Query().Get("at"))
+		g, err := s.Store.Game(pathID(r))
+		if err != nil {
+			storeFailure(w, err)
+			return
+		}
+		if streamed[g.Platform] {
+			body := http.MaxBytesReader(w, r.Body, store.MaxStreamedStateSize+1)
+			v, err := s.Store.PutStateFrom(g.ID, n, body, store.NewState{
+				Device: device(r.URL.Query().Get("device")), Created: at, IfNewer: !at.IsZero(),
+			})
+			stateResult(w, v, err)
 			return
 		}
 		data, err := readBody(w, r, store.MaxStateSize)
@@ -75,9 +93,6 @@ func (s *Server) stateRoutes(mux *http.ServeMux) {
 		if len(data) > 1<<20 {
 			defer debug.FreeOSMemory()
 		}
-		// at is when the player took the state; one that waited offline
-		// doesn't replace a newer one.
-		at, _ := time.Parse(time.RFC3339, r.URL.Query().Get("at"))
 		v, err := s.Store.PutState(pathID(r), n, store.NewState{
 			Data: data, Device: device(r.URL.Query().Get("device")), Created: at, IfNewer: !at.IsZero(),
 		})
@@ -126,5 +141,31 @@ func stateResult(w http.ResponseWriter, v store.State, err error) {
 		storeFailure(w, err)
 	default:
 		jsonResponse(w, v)
+	}
+}
+
+// writePicture sends a state's PNG without the state inside it (Parlor's
+// "prLs" chunk): the screenshot alone, not megabytes of state.
+func writePicture(w io.Writer, f io.ReadSeeker) {
+	head := make([]byte, 8)
+	if _, err := io.ReadFull(f, head); err != nil {
+		return
+	}
+	w.Write(head)
+	for {
+		if _, err := io.ReadFull(f, head); err != nil {
+			return
+		}
+		n := int64(binary.BigEndian.Uint32(head))
+		if string(head[4:]) == "prLs" {
+			if _, err := f.Seek(n+4, io.SeekCurrent); err != nil {
+				return
+			}
+			continue
+		}
+		w.Write(head)
+		if _, err := io.CopyN(w, f, n+4); err != nil {
+			return
+		}
 	}
 }

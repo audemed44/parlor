@@ -126,6 +126,10 @@ func (s *Server) sendSave(w http.ResponseWriter, v store.Save, download bool) {
 		name := "save.srm"
 		if g, err := s.Store.Game(v.GameID); err == nil {
 			name = library.Title(g.Path) + ".srm"
+			// A 3DS save is the folder of the game's save files, as a tar.
+			if streamed[g.Platform] {
+				name = library.Title(g.Path) + ".tar"
+			}
 		}
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	}

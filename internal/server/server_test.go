@@ -232,7 +232,7 @@ func TestUploadAndImport(t *testing.T) {
 func TestSettings(t *testing.T) {
 	h := setup(t)
 	resp, body := h.do("GET", "/api/settings", nil)
-	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != `{"fast_forward":2}` {
+	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != `{"fast_forward":2,"stream":false}` {
 		t.Fatalf("default: %d %s", resp.StatusCode, body)
 	}
 	if resp, _ = h.do("POST", "/api/settings", map[string]int{"fast_forward": 5}); resp.StatusCode != 400 {
@@ -242,7 +242,7 @@ func TestSettings(t *testing.T) {
 		t.Fatalf("4x: %d", resp.StatusCode)
 	}
 	_, body = h.do("GET", "/api/settings", nil)
-	if strings.TrimSpace(string(body)) != `{"fast_forward":4}` {
+	if strings.TrimSpace(string(body)) != `{"fast_forward":4,"stream":false}` {
 		t.Fatalf("after: %s", body)
 	}
 }

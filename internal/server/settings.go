@@ -10,13 +10,16 @@ import (
 type Settings struct {
 	// FastForward is the speed the fast-forward button plays at.
 	FastForward int `json:"fast_forward"`
+	// Stream is whether parlor-stream is set up, to play the 3DS; it can't
+	// be changed here.
+	Stream bool `json:"stream"`
 }
 
 // FastForwardSpeeds are the speeds to choose from; 2× is the default.
 var FastForwardSpeeds = []int{2, 3, 4, 6, 8}
 
 func (s *Server) settings() (Settings, error) {
-	out := Settings{FastForward: 2}
+	out := Settings{FastForward: 2, Stream: s.StreamURL != ""}
 	v, err := s.Store.Setting("fast_forward")
 	if n, _ := strconv.Atoi(v); slices.Contains(FastForwardSpeeds, n) {
 		out.FastForward = n
@@ -46,6 +49,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			storeFailure(w, err)
 			return
 		}
+		body.Stream = s.StreamURL != ""
 		jsonResponse(w, body)
 	})
 }

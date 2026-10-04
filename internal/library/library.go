@@ -41,6 +41,9 @@ var Platforms = []Platform{
 	{"nes", "NES", "NES", []string{".nes"}, 8 << 20},
 	{"snes", "SNES", "Super Nintendo", []string{".sfc", ".smc"}, 16 << 20},
 	{"nds", "DS", "Nintendo DS", []string{".nds"}, 1 << 30},
+	// 3DS games play on the server and stream to the browser
+	// (parlor-stream): decrypted cartridge dumps.
+	{"3ds", "3DS", "Nintendo 3DS", []string{".3ds", ".cci"}, 8 << 30},
 }
 
 // PlatformOf is the console a ROM is for, by its extension; "" for none.
@@ -127,7 +130,7 @@ func Hash(path string) (string, error) {
 // RetroDECK's platform folders).
 var folderNames = map[string]string{
 	"gba": "gba", "gb": "gb", "gbc": "gbc", "nes": "nes", "famicom": "nes",
-	"snes": "snes", "sfc": "snes", "nds": "nds",
+	"snes": "snes", "sfc": "snes", "nds": "nds", "3ds": "3ds", "n3ds": "3ds",
 }
 
 // PlatformHint is the console a file's folders name, like saves/nds/...;

@@ -26,7 +26,13 @@ const (
 	// MaxStateSize fits a DS state (~6.5 MiB) with its screenshot; mGBA's
 	// GBA states are ~400 KiB.
 	MaxStateSize = 16 << 20
+	// MaxStreamedStateSize fits a 3DS state (~22 MiB) with its screenshot.
+	// They're written to disk as they arrive, never held in memory.
+	MaxStreamedStateSize = 64 << 20
 )
+
+// citraState starts the 3DS core's (Azahar's) states.
+var citraState = []byte("CST\x1b")
 
 // ErrInvalidState is returned for data that isn't a save state the game's
 // emulator can load.
@@ -81,6 +87,12 @@ func NormalizeState(platform string, data []byte) ([]byte, error) {
 		return nil, ErrInvalidState
 	}
 	if bytes.HasPrefix(data, pngMagic) {
+		return data, nil
+	}
+	if platform == "3ds" {
+		if !bytes.HasPrefix(data, citraState) {
+			return nil, ErrInvalidState
+		}
 		return data, nil
 	}
 	if platform != "gba" {
@@ -212,6 +224,74 @@ func (s *Store) PutState(gameID int64, slot int, n NewState) (State, error) {
 		ON CONFLICT(game_id, slot) DO UPDATE SET created=excluded.created, size=excluded.size,
 		sha256=excluded.sha256, device=excluded.device, note=excluded.note`,
 		gameID, slot, stamp(created), len(data), hex.EncodeToString(sum[:]), n.Device, n.Note)
+	if err != nil {
+		return State{}, err
+	}
+	return s.StateIn(gameID, slot)
+}
+
+// PutStateFrom puts a streamed console's state (3DS) in a slot, writing it
+// to disk as it's read: these states are too big to hold in memory. It
+// must be a bare state or one wrapped in a PNG.
+func (s *Store) PutStateFrom(gameID int64, slot int, r io.Reader, n NewState) (State, error) {
+	if slot < 0 || slot > QuickSlots {
+		return State{}, ErrInvalidSlot
+	}
+	g, err := s.Game(gameID)
+	if err != nil {
+		return State{}, err
+	}
+	head := make([]byte, len(pngMagic))
+	if _, err := io.ReadFull(r, head); err != nil {
+		return State{}, ErrInvalidState
+	}
+	if !bytes.Equal(head, pngMagic) {
+		if _, err := NormalizeState(g.Platform, head); err != nil {
+			return State{}, err
+		}
+	}
+	path := s.statePath(gameID, slot)
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return State{}, err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "upload-*")
+	if err != nil {
+		return State{}, err
+	}
+	defer os.Remove(tmp.Name())
+	h := sha256.New()
+	size, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(io.MultiReader(bytes.NewReader(head), r), MaxStreamedStateSize+1))
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return State{}, err
+	}
+	if size > MaxStreamedStateSize {
+		return State{}, ErrInvalidState
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	created := n.Created
+	if created.IsZero() || created.After(s.Now()) {
+		created = s.Now()
+	}
+	if n.IfNewer {
+		old, err := s.StateIn(gameID, slot)
+		if err == nil && old.Created >= stamp(created) {
+			return old, nil
+		}
+	}
+	if err = os.Chmod(tmp.Name(), 0600); err != nil {
+		return State{}, err
+	}
+	if err = os.Rename(tmp.Name(), path); err != nil {
+		return State{}, err
+	}
+	_, err = s.DB.Exec(`INSERT INTO states(game_id, slot, created, size, sha256, device, note) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(game_id, slot) DO UPDATE SET created=excluded.created, size=excluded.size,
+		sha256=excluded.sha256, device=excluded.device, note=excluded.note`,
+		gameID, slot, stamp(created), size, hex.EncodeToString(h.Sum(nil)), n.Device, n.Note)
 	if err != nil {
 		return State{}, err
 	}
