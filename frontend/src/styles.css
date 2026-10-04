@@ -670,6 +670,12 @@ footer {
   height: 100% !important;
   image-rendering: pixelated;
 }
+/* A streamed game arrives already rendered at a higher resolution:
+   scale it smoothly. */
+.stream-screen {
+  image-rendering: auto;
+  object-fit: contain;
+}
 .player.touch .screen-box {
   pointer-events: none;
 }
@@ -948,6 +954,11 @@ footer {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+/* A streamed game's resolution: a label, then 1× to 4×. */
+.menu-row.scales {
+  grid-template-columns: auto repeat(4, 1fr);
+  align-items: center;
 }
 .state-shot {
   width: 100%;

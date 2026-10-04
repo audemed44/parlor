@@ -32,6 +32,15 @@ import { ago, deviceName } from "../lib";
 import { pending, pendingStates, type Pending } from "../pending";
 import { loadROM } from "../roms";
 import { digest, send, sendState } from "../sync";
+import {
+  isRemote,
+  maxStreamSpeed,
+  savedScale,
+  stream,
+  streamScales,
+  type RemoteCore,
+  type StreamEvent,
+} from "../stream";
 import { system, type System } from "../systems";
 import { quickSlots, type GameDetail, type Save, type Settings, type State } from "../types";
 
@@ -51,8 +60,10 @@ interface Clash {
 
 const touch = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 
-// The core for a console: mGBA for the GBA, EmulatorJS for the rest.
-const coreFor = (sys: System, id: number) => (sys.ejs ? ejs(sys) : mgba(id));
+// The core for a console: mGBA for the GBA, the server for the 3DS,
+// EmulatorJS for the rest.
+const coreFor = (sys: System, id: number) =>
+  sys.stream ? stream(sys, id) : sys.ejs ? ejs(sys) : mgba(id);
 
 // The desktop keyboard's keys, for the hint under the game.
 function keyHint(sys: System): string {
@@ -101,6 +112,12 @@ export function Player({
   const [customs, setCustoms] = useState<Customs>(() => loadCustoms(sys.id));
   const [selected, setSelected] = useState<string | null>(null);
   const size = useRef({ w: 0, h: 0 });
+  // Streamed games: the resolution, whether the server is still starting
+  // the game, and whether it's already playing this one (another tab or
+  // device), so it can be carried on from there.
+  const [scale, setScale] = useState(0);
+  const [starting, setStarting] = useState(false);
+  const [running, setRunning] = useState(false);
 
   const areaRef = useRef<HTMLDivElement>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -172,6 +189,25 @@ export function Player({
       if (!live) return;
       setGame(g);
       if (g.missing) throw new Error("This game's ROM is missing from the library folder.");
+      if (sys.stream) {
+        const settings = await api<Settings>("settings");
+        if (!settings.stream) {
+          throw new Error(
+            "3DS games play on the server, through parlor-stream, which isn't set up. See Parlor's README.",
+          );
+        }
+        const [st, playing] = await Promise.all([
+          api<State[]>(`games/${id}/states`),
+          api<{ game_id: number }>("stream").catch(() => ({ game_id: 0 })),
+        ]);
+        if (!live) return;
+        setStates(st);
+        setRunning(playing.game_id === id);
+        core.current = await boot;
+        setBooted(true);
+        setPhase("ready");
+        return;
+      }
       const romLoad = loadROM(g.id, g.sha1, (f) => live && setProgress(f));
       const waiting = await pending.get(id).catch(() => undefined);
       if (waiting) {
@@ -294,6 +330,7 @@ export function Player({
   // begin starts the game, from where it was left when carryOn is set.
   function begin(carryOn: boolean) {
     const m = core.current;
+    if (isRemote(m)) return beginRemote(m, carryOn);
     if (!m || !rom.current || clash || !game) return;
     try {
       m.start(rom.current, initial.current, { saveType: game.save_type, rtc: game.rtc });
@@ -315,6 +352,56 @@ export function Player({
       setError((e as Error).message);
       setPhase("error");
     }
+  }
+
+  // beginRemote starts a streamed game. The server loads the save, and
+  // the state when carrying on, itself.
+  function beginRemote(m: RemoteCore, carryOn: boolean) {
+    m.onEvent(streamEvent);
+    setStarting(true);
+    setPhase("playing");
+    m.begin(carryOn, savedScale()).catch((e: Error) => {
+      setError(`Couldn't start the game on the server: ${e.message}`);
+      setPhase("error");
+    });
+  }
+
+  function streamEvent(e: StreamEvent) {
+    switch (e.type) {
+      case "started":
+        setStarting(false);
+        setScale(e.scale);
+        break;
+      case "saving":
+        setStatus({ kind: "saving" });
+        break;
+      case "saved":
+        setStatus({ kind: "saved", at: e.at });
+        break;
+      case "save_failed":
+        setStatus({ kind: "offline" });
+        break;
+      case "carry_on_failed":
+        setToast("Couldn't load where you left off; started from the in-game save.");
+        break;
+      case "error":
+        setError(e.error);
+        setPhase("error");
+        break;
+      case "lost":
+        setError(
+          "Lost the connection to the server. The game waits there a few minutes: open it again to carry on.",
+        );
+        setPhase("error");
+        break;
+    }
+  }
+
+  function changeScale(n: number) {
+    const m = core.current;
+    if (!isRemote(m)) return;
+    m.setScale(n);
+    setScale(n);
   }
 
   // While playing: save when the app goes to the background (iOS may kill
@@ -427,6 +514,16 @@ export function Player({
   async function quit() {
     setMenu(false);
     const m = core.current;
+    // The server keeps the place and the save of a streamed game.
+    if (isRemote(m)) {
+      if (phase === "playing") {
+        setStatus({ kind: "saving" });
+        await m.quit();
+      }
+      m.stop();
+      onExit();
+      return;
+    }
     if (m && phase === "playing") {
       await queue();
       // Choose which save to keep before leaving.
@@ -450,7 +547,7 @@ export function Player({
   // there next time, on any device. It waits on the device until sent.
   async function keepPlace() {
     const m = core.current;
-    if (!m || conflicted.current) return;
+    if (!m || conflicted.current || isRemote(m)) return;
     const data = await m.captureState(0);
     if (!data) return;
     const p = { gameId: id, data: data.slice(), at: new Date().toISOString() };
@@ -464,6 +561,17 @@ export function Player({
     const m = core.current;
     if (!m) return;
     const note = quick ? setToast : setSlotNote;
+    if (isRemote(m)) {
+      note("Saving…");
+      try {
+        const v = await m.saveState(slot);
+        setStates((list) => [...list.filter((x) => x.slot !== slot), v]);
+        note(`Saved to slot ${slot}`);
+      } catch (e) {
+        note(`Couldn't save to slot ${slot}: ${(e as Error).message}`);
+      }
+      return;
+    }
     const data = await m.captureState(slot);
     if (!data) {
       note("The emulator couldn't take a save state.");
@@ -485,6 +593,17 @@ export function Player({
     if (!m) return;
     const note = quick ? setToast : setSlotNote;
     note("Loading…");
+    if (isRemote(m)) {
+      try {
+        await m.loadState(slot);
+        note(`Loaded slot ${slot}`);
+        if (quick && !paused.current) m.resume();
+        setMenu(false);
+      } catch (e) {
+        note(`Couldn't load slot ${slot}: ${(e as Error).message}`);
+      }
+      return;
+    }
     try {
       const got = await bytes(`games/${id}/states/${slot}`);
       if (!got || !(await m.restoreState(slot, got.data))) {
@@ -560,7 +679,7 @@ export function Player({
   }
   function toggleFast() {
     const next = !fast;
-    core.current?.setSpeed(next ? speed : 1);
+    core.current?.setSpeed(next ? ffSpeed : 1);
     setFast(next);
   }
   function toggleSound() {
@@ -596,6 +715,8 @@ export function Player({
   const picked = selected ? area?.shapes.find((v) => v.id === selected) : undefined;
   const barAtBottom = !!picked && centre(picked).y < size.current.h / 2;
 
+  // The server fast forwards at up to 4×.
+  const ffSpeed = sys.stream ? Math.min(speed, maxStreamSpeed) : speed;
   const box = area?.screen;
   const left = states.find((v) => v.slot === 0);
   const stateImage = (v: State) =>
@@ -616,7 +737,7 @@ export function Player({
             onKey={key}
             onAction={(a) => (a === "Menu" ? setMenu(true) : toggleFast())}
             toggled={fast ? new Set(["Fast"]) : new Set()}
-            fastLabel={`▶▶ ${speed}×`}
+            fastLabel={`▶▶ ${ffSpeed}×`}
             editing={editing ? { selected, onSelect: setSelected, onMove: moveControl } : undefined}
             onTouchScreen={sys.touch && phase === "playing" ? touchScreen : undefined}
           />
@@ -685,7 +806,7 @@ export function Player({
             <span class="eyebrow">{game?.title}</span>
             <span class="hint mono">{keyHint(sys)}</span>
             <button class={"btn" + (fast ? " active" : "")} onClick={toggleFast}>
-              <FastForward size={15} /> {speed}×
+              <FastForward size={15} /> {ffSpeed}×
             </button>
             <button class="btn" onClick={() => setMenu(true)}>
               Menu
@@ -694,6 +815,9 @@ export function Player({
         )}
         {phase === "playing" && <SaveBadge status={status} />}
         {toast && <div class="toast">{toast}</div>}
+        {phase === "playing" && starting && !toast && (
+          <div class="toast">Starting the game on the server…</div>
+        )}
       </div>
 
       {phase !== "playing" && (
@@ -711,35 +835,46 @@ export function Player({
                   <div style={{ width: `${Math.round(progress * 100)}%` }} />
                 </div>
                 <p class="hint">
-                  {progress < 1
-                    ? `Downloading ROM… ${Math.round(progress * 100)}%`
-                    : sys.ejs
-                      ? `Starting the ${sys.short} emulator…`
-                      : "Starting mGBA…"}
+                  {sys.stream
+                    ? "Getting ready…"
+                    : progress < 1
+                      ? `Downloading ROM… ${Math.round(progress * 100)}%`
+                      : sys.ejs
+                        ? `Starting the ${sys.short} emulator…`
+                        : "Starting mGBA…"}
                 </p>
               </>
             )}
-            {phase === "ready" && !clash && left && (
+            {phase === "ready" && !clash && (left || running) && (
               <>
-                {left.image && (
+                {left?.image && !running && (
                   <img class="state-shot" src={stateImage(left)} alt="Where you left off" />
                 )}
                 <button class="btn primary big" onClick={() => begin(true)} autoFocus>
                   <Play size={18} /> Continue
                 </button>
-                <p class="hint">
-                  You left off here {ago(left.created)}
-                  {left.device ? ` on ${left.device}` : ""}.
-                  {game?.save && game.save.created > left.created
-                    ? ` The in-game save from ${ago(game.save.created)} is newer.`
-                    : ""}
-                </p>
+                {running ? (
+                  <p class="hint">
+                    This game is playing on the server now. Continue picks it up here; it's saved
+                    where it is first.
+                  </p>
+                ) : (
+                  left && (
+                    <p class="hint">
+                      You left off here {ago(left.created)}
+                      {left.device ? ` on ${left.device}` : ""}.
+                      {game?.save && game.save.created > left.created
+                        ? ` The in-game save from ${ago(game.save.created)} is newer.`
+                        : ""}
+                    </p>
+                  )
+                )}
                 <button class="btn" onClick={() => begin(false)}>
                   {game?.save ? "Start from the in-game save" : "Start a new game"}
                 </button>
               </>
             )}
-            {phase === "ready" && !clash && !left && (
+            {phase === "ready" && !clash && !left && !running && (
               <button class="btn primary big" onClick={() => begin(false)} autoFocus>
                 <Play size={18} /> Tap to play
               </button>
@@ -788,9 +923,24 @@ export function Player({
               })}
             </div>
             {slotNote && <p class="hint">{slotNote}</p>}
+            {sys.stream && (
+              <div class="menu-row scales">
+                <span class="eyebrow">Resolution</span>
+                {streamScales.map((n) => (
+                  <button
+                    key={n}
+                    class={"btn small" + (scale === n ? " active" : "")}
+                    onClick={guard(() => changeScale(n))}
+                  >
+                    {n}×
+                  </button>
+                ))}
+              </div>
+            )}
             <div class="menu-row">
               <button class={"btn" + (fast ? " active" : "")} onClick={guard(toggleFast)}>
-                <Gauge size={16} /> {fast ? `Fast forward ${speed}× on` : `Fast forward ${speed}×`}
+                <Gauge size={16} />{" "}
+                {fast ? `Fast forward ${ffSpeed}× on` : `Fast forward ${ffSpeed}×`}
               </button>
               <button class="btn" onClick={guard(toggleSound)}>
                 {muted ? <VolumeX size={16} /> : <Volume2 size={16} />} {muted ? "Muted" : "Sound"}
