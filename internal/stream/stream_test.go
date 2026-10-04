@@ -216,3 +216,26 @@ func newTar(buf *bytes.Buffer) func(name, content string) {
 		w.Close()
 	}
 }
+
+func TestSqueeze(t *testing.T) {
+	in := make([]int16, 0, 2000)
+	for i := 0; i < 1000; i++ {
+		in = append(in, int16(i), int16(-i))
+	}
+	out := Squeeze(nil, in, 500, 4)
+	if len(out) != 1000 || out[0] != 0 || out[len(out)-2] != 999 || out[len(out)-1] != -999 {
+		t.Fatalf("halved: %d samples, ends %d %d", len(out), out[len(out)-2], out[len(out)-1])
+	}
+	if got := Squeeze(nil, in, 1500, 4); len(got) != 2*1500 {
+		t.Fatalf("stretched to %d frames, want 1500", len(got)/2)
+	}
+	if got := Squeeze(nil, in, 5000, 4); len(got) != 2*2000 {
+		t.Fatalf("stretched to %d frames, want at most twice", len(got)/2)
+	}
+	if got := Squeeze(nil, in, 10, 4); len(got) != 2*250 {
+		t.Fatalf("squeezed past the speed: %d frames", len(got)/2)
+	}
+	if got := Squeeze(nil, nil, 10, 4); len(got) != 0 {
+		t.Fatal("made sound from nothing")
+	}
+}

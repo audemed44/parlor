@@ -75,6 +75,7 @@ type Session struct {
 	speed        int
 	scale        int
 	audio        *enc.Audio
+	squeezed     []int16
 	perf         perf
 
 	// The encoder's goroutine: frames in, buffers back.
@@ -284,12 +285,13 @@ func (s *Session) play() error {
 			s.tell(map[string]any{"type": "carry_on_failed", "error": err.Error()})
 		}
 	}
-	return s.loop(ctx, av.FPS)
+	return s.loop(ctx, av.FPS, av.SampleRate)
 }
 
-func (s *Session) loop(ctx context.Context, fps float64) error {
+func (s *Session) loop(ctx context.Context, fps, rate float64) error {
 	period := time.Duration(float64(time.Second) / fps)
 	next := time.Now()
+	lastTick := next
 	frame := 0
 	var awaySince time.Time
 	for {
@@ -336,19 +338,26 @@ func (s *Session) loop(ctx context.Context, fps float64) error {
 		retro.SetInput(*s.input.Load())
 		drew := false
 		t := time.Now()
+		// The real time since the last tick, which fast forward's sound
+		// has to fit in.
+		wall := t.Sub(lastTick)
+		lastTick = t
 		for i := 0; i < s.speed; i++ {
 			if retro.Run() {
 				drew = true
 			}
 			s.perf.frames++
-			if i < s.speed-1 {
-				retro.ClearAudio() // fast forward is silent
-			}
 		}
-		if s.speed == 1 {
-			if err := s.sendAudio(retro.Audio()); err != nil {
-				return err
-			}
+		audio := retro.Audio()
+		if s.speed > 1 {
+			// Fast forward: every frame's sound, fitted to the time this
+			// tick took, so it plays on, faster and higher, without gaps
+			// however fast the game manages to run.
+			s.squeezed = Squeeze(s.squeezed[:0], audio, int(rate*wall.Seconds()+0.5), s.speed)
+			audio = s.squeezed
+		}
+		if err := s.sendAudio(audio); err != nil {
+			return err
 		}
 		retro.ClearAudio()
 		s.perf.emulate += time.Since(t)
@@ -680,4 +689,30 @@ func (p *perf) report(speed int) {
 		"speed", speed, "emulate_per_tick", ms(p.emulate, p.ticks), "readback_per_frame", ms(retro.TakeReadback(), p.frames),
 		"encode_per_frame", ms(encode, sent), "busy", strconv.Itoa(int(100*p.emulate/d))+"%")
 	p.since, p.ticks, p.frames, p.emulate = time.Now(), 0, 0, 0
+}
+
+// Squeeze resamples interleaved stereo sound to frames frames (appending
+// to out), for fast forward: the sound of a tick fitted to the real time
+// it took, so it plays without gaps. That's usually shorter (faster and
+// higher), but the core may hand over less than its frames' worth when
+// running fast, so it may stretch too: up to twice, and squeeze at most
+// speed times.
+func Squeeze(out, in []int16, frames, speed int) []int16 {
+	n := len(in) / 2
+	if n == 0 {
+		return out
+	}
+	frames = min(max(frames, n/max(speed, 1), 1), 2*n)
+	step := float64(n-1) / float64(max(frames-1, 1))
+	for i := 0; i < frames; i++ {
+		p := float64(i) * step
+		j := int(p)
+		f := p - float64(j)
+		k := min(j+1, n-1)
+		for c := 0; c < 2; c++ {
+			a, b := float64(in[j*2+c]), float64(in[k*2+c])
+			out = append(out, int16(a+(b-a)*f))
+		}
+	}
+	return out
 }
