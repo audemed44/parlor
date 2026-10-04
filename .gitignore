@@ -2,6 +2,8 @@
 /frontend/node_modules/
 /frontend/*.tsbuildinfo
 /frontend/public/core/
+/frontend/public/ejs/
+/frontend/.ejs-cache/
 /parlor
 /data/
 .env

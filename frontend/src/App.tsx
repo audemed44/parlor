@@ -9,6 +9,7 @@ import { PatchPage } from "./components/PatchPage";
 import { Player } from "./components/Player";
 import { SettingsPage } from "./components/SettingsPage";
 import { ErrorNote } from "./components/ui";
+import { playURL, system } from "./systems";
 import type { Config, Game } from "./types";
 
 // Routes live in the URL hash: #/, #/game/3, #/play/3, #/import,
@@ -70,10 +71,17 @@ export function App() {
   if (signed === null) return error ? <ErrorNote error={error} /> : null;
 
   if (at.page === "play") {
+    const platform = games.find((g) => g.id === at.id)?.platform ?? "gba";
+    // Games EmulatorJS runs only play on /play (see playURL).
+    if (system(platform).ejs && location.pathname !== "/play") {
+      location.replace(playURL({ id: at.id, platform }));
+      return null;
+    }
     return (
       <Player
         key={at.id}
         id={at.id}
+        platform={platform}
         onExit={() => {
           refresh();
           location.hash = `#/game/${at.id}`;
@@ -129,6 +137,7 @@ export function App() {
       <footer>
         <span>PARLOR · SAVES ON YOUR SERVER</span>
         <a href={`/core/${__CORE_VERSION__}/README.md`}>mGBA {__CORE_VERSION__} · MPL-2.0</a>
+        <a href={`/ejs/${__EJS_VERSION__}/NOTICE.txt`}>EmulatorJS {__EJS_VERSION__} · GPL-3.0</a>
       </footer>
     </div>
   );

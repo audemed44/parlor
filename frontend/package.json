@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "core": "node scripts/copy-core.mjs",
+    "core": "node scripts/copy-core.mjs && node scripts/fetch-ejs.mjs",
     "dev": "npm run core && vite",
     "build": "npm run core && tsc -b && vite build",
     "typecheck": "tsc -b",

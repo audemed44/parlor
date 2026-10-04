@@ -10,6 +10,8 @@ import {
   type Circle,
 } from "./controls";
 
+import { systems } from "./systems";
+
 // An iPhone 15 in portrait, below the status bar.
 const portrait = layout(393, 780);
 const find = (id: string) => portrait.shapes.find((s) => s.id === id)! as Circle;
@@ -132,5 +134,48 @@ describe("custom layouts", () => {
     expect(shapeAt(base.shapes, b.x, b.y)?.id).toBe("B");
     expect(shapeAt(base.shapes, 195, 100)).toBeNull();
     expect(centre(b)).toEqual({ x: b.x, y: b.y });
+  });
+});
+
+describe("other consoles", () => {
+  const ids = (l: ReturnType<typeof layout>) => l.shapes.map((s) => s.id).sort();
+  it("leaves out buttons the console doesn't have", () => {
+    const nes = layout(393, 780, systems.nes);
+    expect(ids(nes)).toEqual(["A", "B", "Fast", "Menu", "Select", "Start", "dpad"]);
+    expect(nes.screen.w / nes.screen.h).toBeCloseTo(292 / 224);
+  });
+  it("puts X, Y, A and B in a diamond", () => {
+    for (const [w, h] of [
+      [393, 780],
+      [844, 390],
+    ]) {
+      const l = layout(w, h, systems.snes);
+      const at = (id: string) => l.shapes.find((s) => s.id === id) as Circle;
+      const [x, a, b, y] = ["X", "A", "B", "Y"].map(at);
+      expect(x.y).toBeLessThan(a.y);
+      expect(b.y).toBeGreaterThan(a.y);
+      expect(y.x).toBeLessThan(x.x);
+      expect(a.x).toBeGreaterThan(x.x);
+      // Each button presses only itself at its centre, and stays in view.
+      for (const s of [x, a, b, y]) {
+        expect(hit(l.shapes, s.x, s.y)).toEqual([s.id]);
+        expect(s.x + s.r).toBeLessThanOrEqual(w);
+      }
+    }
+  });
+  it("gives the DS's bottom screen to taps, clear of the controls", () => {
+    for (const [w, h] of [
+      [393, 780],
+      [844, 390],
+    ]) {
+      const l = layout(w, h, systems.nds);
+      const t = l.touch!;
+      expect(t.w).toBeCloseTo(l.screen.w);
+      expect(t.y).toBeCloseTo(l.screen.y + l.screen.h / 2);
+      // Both screens fit, one above the other.
+      expect(l.screen.h / l.screen.w).toBeCloseTo(1.5);
+      expect(l.screen.h).toBeLessThanOrEqual(h);
+    }
+    expect(layout(393, 780).touch).toBeUndefined();
   });
 });

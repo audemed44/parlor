@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { mGBAEmulator } from "@thenick775/mgba-wasm";
 import {
   ArrowLeft,
   FastForward,
@@ -26,21 +25,14 @@ import {
 } from "../controls";
 import { loadBindings, pads, read, type Control } from "../gamepad";
 import { Controls } from "./Controls";
-import {
-  afterStart,
-  captureState,
-  emulator,
-  replaceSave,
-  restoreState,
-  resumeAudio,
-  screen,
-  start,
-  stop,
-} from "../emulator";
+import { keyboard, keyName, type Core } from "../core";
+import { ejs } from "../ejs";
+import { mgba } from "../emulator";
 import { ago, deviceName } from "../lib";
 import { pending, pendingStates, type Pending } from "../pending";
 import { loadROM } from "../roms";
 import { digest, send, sendState } from "../sync";
+import { system, type System } from "../systems";
 import { quickSlots, type GameDetail, type Save, type Settings, type State } from "../types";
 
 type Phase = "loading" | "ready" | "playing" | "error";
@@ -59,21 +51,35 @@ interface Clash {
 
 const touch = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 
-// Keyboard on desktop. SDL key names.
-const keyboard: [string, Key][] = [
-  ["X", "A"],
-  ["Z", "B"],
-  ["A", "L"],
-  ["S", "R"],
-  ["Return", "Start"],
-  ["Backspace", "Select"],
-  ["Up", "Up"],
-  ["Down", "Down"],
-  ["Left", "Left"],
-  ["Right", "Right"],
-];
+// The core for a console: mGBA for the GBA, EmulatorJS for the rest.
+const coreFor = (sys: System, id: number) => (sys.ejs ? ejs(sys) : mgba(id));
 
-export function Player({ id, onExit }: { id: number; onExit: () => void }) {
+// The desktop keyboard's keys, for the hint under the game.
+function keyHint(sys: System): string {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const [code, key] of keyboard(sys.keys)) {
+    const name = keyName(code);
+    if (name === "Arrows") {
+      if (!seen.has(name)) parts.unshift("Arrows");
+      seen.add(name);
+      continue;
+    }
+    parts.push(`${name} ${key}`);
+  }
+  return [...parts, "F fast forward", "Esc menu"].join(" · ");
+}
+
+export function Player({
+  id,
+  platform,
+  onExit,
+}: {
+  id: number;
+  platform: string;
+  onExit: () => void;
+}) {
+  const sys = system(platform);
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState("");
   const [game, setGame] = useState<GameDetail | null>(null);
@@ -92,13 +98,13 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   const [toast, setToast] = useState("");
   // The layout editor: this device's own control layouts.
   const [editing, setEditing] = useState(false);
-  const [customs, setCustoms] = useState<Customs>(loadCustoms);
+  const [customs, setCustoms] = useState<Customs>(() => loadCustoms(sys.id));
   const [selected, setSelected] = useState<string | null>(null);
   const size = useRef({ w: 0, h: 0 });
 
   const areaRef = useRef<HTMLDivElement>(null);
   const holder = useRef<HTMLDivElement>(null);
-  const core = useRef<mGBAEmulator | null>(null);
+  const core = useRef<Core | null>(null);
   const rom = useRef<Uint8Array | null>(null);
   const initial = useRef<Uint8Array | null>(null);
   // The state taken when this game was last left, on any device.
@@ -118,11 +124,11 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     const measure = () => {
       const { width, height } = el.getBoundingClientRect();
       size.current = { w: width, h: height };
-      if (!touch) setArea(desktopLayout(width, height));
-      else if (padOn) setArea(padLayout(width, height));
+      if (!touch) setArea(desktopLayout(width, height, sys));
+      else if (padOn) setArea(padLayout(width, height, sys));
       else {
         const custom = customs[width > height ? "landscape" : "portrait"];
-        setArea(customize(placeControls(width, height), custom, width, height));
+        setArea(customize(placeControls(width, height, sys), custom, width, height));
       }
     };
     measure();
@@ -141,9 +147,11 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     };
   }, []);
 
+  // The core's screen goes into the box once both exist.
+  const [booted, setBooted] = useState(false);
   useEffect(() => {
-    holder.current?.appendChild(screen());
-  }, [area !== null]);
+    if (core.current) holder.current?.appendChild(core.current.screen);
+  }, [area !== null, booted]);
 
   // A message over the game for a moment (quick save and load).
   useEffect(() => {
@@ -155,7 +163,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   // Load everything; the game starts on a tap.
   useEffect(() => {
     let live = true;
-    const boot = emulator();
+    const boot = coreFor(sys, id);
     api<Settings>("settings")
       .then((s) => live && setSpeed(s.fast_forward))
       .catch(() => {});
@@ -184,6 +192,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
       }
       rom.current = await romLoad;
       core.current = await boot;
+      setBooted(true);
       await fetchLatest();
       if (live) setPhase("ready");
     })().catch((e) => {
@@ -255,25 +264,31 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
 
   function pause() {
     paused.current = true;
-    core.current?.pauseGame();
+    core.current?.pause();
   }
   function resume() {
     if (menu || clash || editing) return;
     paused.current = false;
-    core.current?.resumeGame();
-    if (core.current) resumeAudio(core.current);
+    core.current?.resume();
+    core.current?.resumeAudio();
   }
 
-  // listen watches for in-game saves. Loading a game resets the core's
+  // listen watches for in-game saves. Loading a game resets mGBA's
   // callbacks, so this follows every load.
-  function listen(m: mGBAEmulator) {
-    m.addCoreCallbacks({
-      saveDataUpdatedCallback: () => {
-        dirty.current = true;
-        window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(queue, 800);
-      },
+  function listen(m: Core) {
+    m.onSave(() => {
+      dirty.current = true;
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(queue, 800);
     });
+  }
+
+  // rebase takes the save as it is now as the one the server has. Loading
+  // a state puts its own copy of the save in RetroArch's cores; that's
+  // not the game saving, so it isn't uploaded until the game saves again.
+  async function rebase() {
+    const data = core.current?.getSave();
+    if (data?.length) lastHash.current = await digest(data);
   }
 
   // begin starts the game, from where it was left when carryOn is set.
@@ -281,16 +296,16 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     const m = core.current;
     if (!m || !rom.current || clash || !game) return;
     try {
-      for (const [sdl, key] of keyboard) m.bindKey(sdl, key);
-      start(m, id, rom.current, initial.current, { saveType: game.save_type, rtc: game.rtc });
+      m.start(rom.current, initial.current, { saveType: game.save_type, rtc: game.rtc });
       listen(m);
       const state = carryOn ? resumeFrom.current : null;
       if (state) {
-        afterStart(m, () => {
-          if (!restoreState(m, id, 0, state)) {
+        m.afterStart(async () => {
+          if (!(await m.restoreState(0, state))) {
             setSlotNote("Couldn't load where you left off; started from the in-game save.");
           }
-          if (!paused.current) m.resumeGame();
+          await rebase();
+          if (!paused.current) m.resume();
         });
       }
       rom.current = null;
@@ -316,12 +331,12 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     const visibility = () => {
       if (document.hidden) {
         queue();
-        core.current?.pauseGame();
+        core.current?.pause();
         // iOS may close the app from here: keep the place.
         keepPlace();
       } else {
-        if (!paused.current) core.current?.resumeGame();
-        if (core.current) resumeAudio(core.current);
+        if (!paused.current) core.current?.resume();
+        core.current?.resumeAudio();
         wake();
         retry();
       }
@@ -330,7 +345,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     const online = () => retry();
     // iOS suspends audio after calls and other interruptions; any tap
     // brings it back.
-    const tap = () => core.current && resumeAudio(core.current);
+    const tap = () => core.current?.resumeAudio();
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("pagehide", hide);
     window.addEventListener("online", online);
@@ -373,7 +388,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     const tick = () => {
       frame = requestAnimationFrame(tick);
       const now = new Set<Control>();
-      for (const p of pads()) for (const c of read(p, bindings)) now.add(c);
+      for (const p of pads()) for (const c of read(p, bindings, sys.keys)) now.add(c);
       if (now.size) setPadOn(true);
       const ui = latest.current;
       for (const c of held) if (!now.has(c) && isKey(c)) key(c, false);
@@ -418,8 +433,15 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
       if (conflicted.current) return;
       setStatus({ kind: "saving" });
       await keepPlace();
-      m.addCoreCallbacks({ saveDataUpdatedCallback: null });
-      stop(m);
+      m.onSave(null);
+      m.stop();
+    }
+    // EmulatorJS can't start another game, and its page (/play) has a
+    // looser content policy: leave it for the app's own page, which frees
+    // the game's memory too.
+    if (sys.ejs) {
+      location.replace(`/#/game/${id}`);
+      return;
     }
     onExit();
   }
@@ -429,7 +451,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   async function keepPlace() {
     const m = core.current;
     if (!m || conflicted.current) return;
-    const data = captureState(m, id, 0);
+    const data = await m.captureState(0);
     if (!data) return;
     const p = { gameId: id, data: data.slice(), at: new Date().toISOString() };
     await pendingStates.put(p).catch(() => {});
@@ -442,9 +464,9 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     const m = core.current;
     if (!m) return;
     const note = quick ? setToast : setSlotNote;
-    const data = captureState(m, id, slot);
+    const data = await m.captureState(slot);
     if (!data) {
-      note("mGBA couldn't take a save state.");
+      note("The emulator couldn't take a save state.");
       return;
     }
     note("Saving…");
@@ -465,9 +487,12 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     note("Loading…");
     try {
       const got = await bytes(`games/${id}/states/${slot}`);
-      if (!got || !restoreState(m, id, slot, got.data)) throw new Error("mGBA couldn't load it");
+      if (!got || !(await m.restoreState(slot, got.data))) {
+        throw new Error("the emulator couldn't load it");
+      }
+      await rebase();
       note(`Loaded slot ${slot}`);
-      if (quick && !paused.current) m.resumeGame();
+      if (quick && !paused.current) m.resume();
       setMenu(false);
     } catch (e) {
       note(`Couldn't load slot ${slot}: ${(e as Error).message}`);
@@ -504,7 +529,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
     if (latest && core.current) {
       base.current = latest.id;
       lastHash.current = await digest(latest.data);
-      replaceSave(core.current, id, latest.data);
+      core.current.replaceSave(latest.data);
       listen(core.current);
       setStatus({ kind: "saved", at: c.theirs.created });
     }
@@ -526,13 +551,16 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   function key(k: Key, down: boolean) {
     const m = core.current;
     if (!m || phase !== "playing") return;
-    if (down) m.buttonPress(k);
-    else m.buttonUnpress(k);
+    m.press(k, down);
   }
 
+  // touchScreen hands a finger on the DS's bottom screen to the core.
+  function touchScreen(type: "mousedown" | "mousemove" | "mouseup", x: number, y: number) {
+    core.current?.touch?.(type, x, y);
+  }
   function toggleFast() {
     const next = !fast;
-    core.current?.setFastForwardMultiplier(next ? speed : 1);
+    core.current?.setSpeed(next ? speed : 1);
     setFast(next);
   }
   function toggleSound() {
@@ -547,7 +575,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
   function changeLayout(next: Customs[typeof orientation]) {
     const all = { ...customs, [orientation]: next };
     if (!next) delete all[orientation];
-    saveCustoms(all);
+    saveCustoms(all, sys.id);
     setCustoms(all);
   }
   function moveControl(id: string, x: number, y: number) {
@@ -590,6 +618,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
             toggled={fast ? new Set(["Fast"]) : new Set()}
             fastLabel={`▶▶ ${speed}×`}
             editing={editing ? { selected, onSelect: setSelected, onMove: moveControl } : undefined}
+            onTouchScreen={sys.touch && phase === "playing" ? touchScreen : undefined}
           />
         )}
         {editing && (
@@ -654,10 +683,7 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
         {!touch && phase === "playing" && (
           <div class="desk-bar">
             <span class="eyebrow">{game?.title}</span>
-            <span class="hint mono">
-              Arrows · X A · Z B · A L · S R · Enter Start · Backspace Select · F fast forward · Esc
-              menu
-            </span>
+            <span class="hint mono">{keyHint(sys)}</span>
             <button class={"btn" + (fast ? " active" : "")} onClick={toggleFast}>
               <FastForward size={15} /> {speed}×
             </button>
@@ -687,7 +713,9 @@ export function Player({ id, onExit }: { id: number; onExit: () => void }) {
                 <p class="hint">
                   {progress < 1
                     ? `Downloading ROM… ${Math.round(progress * 100)}%`
-                    : "Starting mGBA…"}
+                    : sys.ejs
+                      ? `Starting the ${sys.short} emulator…`
+                      : "Starting mGBA…"}
                 </p>
               </>
             )}
@@ -838,12 +866,13 @@ function SaveBadge({ status, inline }: { status: Status; inline?: boolean }) {
 }
 
 // desktopLayout fits the screen in the window, at a whole multiple of the
-// GBA's 240×160 when there's room, with a bar underneath.
-function desktopLayout(w: number, h: number): Layout {
+// console's when there's room, with a bar underneath.
+function desktopLayout(w: number, h: number, sys: System): Layout {
   const room = h - 70;
-  let scale = Math.min(w / 240, room / 160);
+  const { w: nw, h: nh } = sys.screen;
+  let scale = Math.min(w / nw, room / nh);
   if (scale >= 2) scale = Math.floor(scale);
-  const sw = 240 * scale;
-  const sh = 160 * scale;
+  const sw = nw * scale;
+  const sh = nh * scale;
   return { shapes: [], screen: { x: (w - sw) / 2, y: Math.max(0, (room - sh) / 2), w: sw, h: sh } };
 }

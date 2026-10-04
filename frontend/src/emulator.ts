@@ -1,6 +1,9 @@
-// The mGBA core (WebAssembly). It's created once per page with its own
-// canvas, which the player moves into place, and reused from game to game.
+// The mGBA core (WebAssembly), for GBA games. It's created once per page
+// with its own canvas, which the player moves into place, and reused from
+// game to game.
 import type { mGBAEmulator } from "@thenick775/mgba-wasm";
+import type { Key } from "./controls";
+import { keyboard, type Core, type Overrides } from "./core";
 
 let canvas: HTMLCanvasElement | null = null;
 let core: Promise<mGBAEmulator> | null = null;
@@ -19,7 +22,7 @@ export function screen(): HTMLCanvasElement {
 
 // emulator loads the core on first use. It needs cross-origin isolation
 // (threads share memory).
-export function emulator(): Promise<mGBAEmulator> {
+function emulator(): Promise<mGBAEmulator> {
   if (!core) {
     if (!self.crossOriginIsolated) {
       return Promise.reject(
@@ -64,13 +67,6 @@ function clear(m: mGBAEmulator) {
   }
 }
 
-// Overrides are what mGBA should use instead of detecting it: the save
-// type (as mGBA names them) and whether the cartridge has a clock.
-export interface Overrides {
-  saveType: string;
-  rtc: "" | "on" | "off";
-}
-
 // gameCode is the four-letter code in the ROM header (BPEE for Emerald),
 // which mGBA keys overrides by; ROM hacks keep their base game's.
 export function gameCode(rom: Uint8Array): string {
@@ -96,7 +92,7 @@ function configure(m: mGBAEmulator, rom: Uint8Array, o: Overrides) {
 // start loads a game with its save (null for a new game). It's synchronous
 // so it can run inside the tap that starts the game, which iOS requires for
 // sound.
-export function start(
+function start(
   m: mGBAEmulator,
   id: number,
   rom: Uint8Array,
@@ -115,14 +111,14 @@ export function start(
 
 // replaceSave restarts the running game from another save. The ROM is
 // still in place from start.
-export function replaceSave(m: mGBAEmulator, id: number, save: Uint8Array) {
+function replaceSave(m: mGBAEmulator, id: number, save: Uint8Array) {
   m.quitGame();
   m.FS.writeFile(savePath(id), save);
   if (!m.loadGame(romPath(id), savePath(id))) throw new Error("mGBA couldn't reload the game");
   resumeAudio(m);
 }
 
-export function stop(m: mGBAEmulator) {
+function stop(m: mGBAEmulator) {
   m.toggleInput(false);
   m.quitGame();
   clear(m);
@@ -130,7 +126,7 @@ export function stop(m: mGBAEmulator) {
 
 // captureState takes a save state of the running game: a PNG of the screen
 // with the state inside, which is how mGBA writes them.
-export function captureState(m: mGBAEmulator, id: number, slot: number): Uint8Array | null {
+function captureState(m: mGBAEmulator, id: number, slot: number): Uint8Array | null {
   const path = statePath(id, slot);
   try {
     if (!m.saveState(slot)) return null;
@@ -143,7 +139,7 @@ export function captureState(m: mGBAEmulator, id: number, slot: number): Uint8Ar
 // afterStart runs f once the game is running. mGBA starts its emulation
 // thread on the tick after a game loads, and starting resets the machine,
 // so a state loaded before then would be lost.
-export function afterStart(m: mGBAEmulator, f: () => void) {
+function afterStart(m: mGBAEmulator, f: () => void) {
   let done = false;
   m.addCoreCallbacks({
     videoFrameEndedCallback: () => {
@@ -160,7 +156,7 @@ export function afterStart(m: mGBAEmulator, f: () => void) {
 
 // restoreState loads a save state into the running game. The game keeps
 // its in-game save (the server's), so a state never rolls a save back.
-export function restoreState(m: mGBAEmulator, id: number, slot: number, data: Uint8Array) {
+function restoreState(m: mGBAEmulator, id: number, slot: number, data: Uint8Array) {
   const path = statePath(id, slot);
   m.FS.writeFile(path, data);
   // mGBA's thread must be stopped while a state loads.
@@ -175,7 +171,45 @@ export function restoreState(m: mGBAEmulator, id: number, slot: number, data: Ui
 
 // resumeAudio wakes the audio context; iOS suspends it until a tap and
 // after interruptions.
-export function resumeAudio(m: mGBAEmulator) {
+function resumeAudio(m: mGBAEmulator) {
   const ctx = m.SDL2?.audioContext;
   if (ctx && ctx.state !== "running") ctx.resume().catch(() => {});
+}
+
+// SDL's names for the keyboard keys Parlor uses.
+function sdlName(code: string): string {
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Arrow")) return code.slice(5);
+  return code === "Enter" ? "Return" : code;
+}
+
+const gbaKeys: Key[] = ["A", "B", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right"];
+
+// mgba is the core as the player uses it, with the game's ID naming its
+// files.
+export async function mgba(id: number): Promise<Core> {
+  const m = await emulator();
+  return {
+    screen: screen(),
+    reusable: true,
+    start(rom, save, overrides) {
+      for (const [code, key] of keyboard(gbaKeys)) m.bindKey(sdlName(code), key);
+      start(m, id, rom, save, overrides);
+    },
+    afterStart: (f) => afterStart(m, f),
+    // Loading a game resets the core's callbacks, so this follows every
+    // load.
+    onSave: (f) => m.addCoreCallbacks({ saveDataUpdatedCallback: f }),
+    getSave: () => m.getSave(),
+    replaceSave: (save) => replaceSave(m, id, save),
+    captureState: async (slot) => captureState(m, id, slot),
+    restoreState: async (slot, data) => restoreState(m, id, slot, data),
+    press: (key, down) => (down ? m.buttonPress(key) : m.buttonUnpress(key)),
+    pause: () => m.pauseGame(),
+    resume: () => m.resumeGame(),
+    setSpeed: (n) => m.setFastForwardMultiplier(n),
+    setVolume: (v) => m.setVolume(v),
+    resumeAudio: () => resumeAudio(m),
+    stop: () => stop(m),
+  };
 }

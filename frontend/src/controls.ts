@@ -1,9 +1,12 @@
-// Touch controls: where each control sits, and which GBA buttons a set of
+// Touch controls: where each control sits, and which buttons a set of
 // touches presses. Drawing and hit-testing share the same shapes, so what
 // you see is what you press. Hit zones are larger than the drawn controls.
+import { systems, type Platform, type System } from "./systems";
 
-export type Key = "A" | "B" | "L" | "R" | "Start" | "Select" | "Up" | "Down" | "Left" | "Right";
-// Not GBA buttons: "Menu" opens Parlor's menu, "Fast" toggles fast forward.
+export type Key =
+  "A" | "B" | "X" | "Y" | "L" | "R" | "Start" | "Select" | "Up" | "Down" | "Left" | "Right";
+// Not console buttons: "Menu" opens Parlor's menu, "Fast" toggles fast
+// forward.
 export type Action = "Menu" | "Fast";
 export type Press = Key | Action;
 
@@ -33,18 +36,56 @@ export interface Layout {
   landscape?: boolean;
   // How opaque the controls are, when set in the layout editor.
   opacity?: number;
+  // The part of the screen that takes taps (the DS's bottom screen).
+  touch?: { x: number; y: number; w: number; h: number };
 }
 
 // layout places the controls for an area of w×h CSS pixels. Portrait: the
 // screen on top, controls below, like a GBA SP. Landscape: the screen as
 // big as it fits, with the controls laid over it, see-through, at the
-// edges where thumbs rest.
-export function layout(w: number, h: number): Layout {
+// edges where thumbs rest. Consoles with X and Y get a diamond of four
+// face buttons; ones without L and R don't get them.
+export function layout(w: number, h: number, sys: System = systems.gba): Layout {
+  const l = sys.keys.includes("X") ? fourButtons(w, h, sys) : twoButtons(w, h, sys);
+  l.shapes = l.shapes.filter((v) => v.kind !== "rect" || !isKey(v.id) || sys.keys.includes(v.id));
+  return withTouch(l, sys);
+}
+
+function isKey(p: Press): p is Key {
+  return p !== "Menu" && p !== "Fast";
+}
+
+// withTouch marks the screen's touch part, when the console has one.
+function withTouch(l: Layout, sys: System): Layout {
+  const t = sys.touch;
+  if (!t) return l;
+  const s = l.screen;
+  return { ...l, touch: { x: s.x + t.x * s.w, y: s.y + t.y * s.h, w: t.w * s.w, h: t.h * s.h } };
+}
+
+// The screen as big as fits w×h, centred; ratio is width over height.
+function fit(w: number, h: number, ratio: number) {
+  const sh = Math.min(h, w / ratio);
+  const sw = sh * ratio;
+  return { x: (w - sw) / 2, y: (h - sh) / 2, w: sw, h: sh };
+}
+
+// portraitScreen is the screen across the top: the full width, unless
+// that would leave too little room for the controls (the DS's two
+// screens are taller than wide).
+function portraitScreen(w: number, h: number, ratio: number) {
+  const sh = Math.min(w / ratio, h * 0.6);
+  const sw = sh * ratio;
+  return { x: (w - sw) / 2, y: 0, w: sw, h: sh };
+}
+
+const ratioOf = (sys: System) => sys.screen.w / sys.screen.h;
+
+function twoButtons(w: number, h: number, sys: System): Layout {
+  const ratio = ratioOf(sys);
   if (w > h) {
     const s = Math.min(h / 390, w / 844, 1.4);
-    const screenH = Math.min(h, w / 1.5);
-    const screenW = screenH * 1.5;
-    const screen = { x: (w - screenW) / 2, y: (h - screenH) / 2, w: screenW, h: screenH };
+    const screen = fit(w, h, ratio);
     const pad = 84 * s; // centre of the d-pad and of A/B from the side
     return {
       screen,
@@ -62,14 +103,13 @@ export function layout(w: number, h: number): Layout {
       ],
     };
   }
-  const screenW = w;
-  const screenH = w / 1.5;
-  const top = screenH;
+  const screen = portraitScreen(w, h, ratio);
+  const top = screen.h;
   const rest = h - top;
   const s = Math.min(w / 390, rest / 440, 1.4);
   const cy = top + Math.min(rest * 0.42, 190 * s);
   return {
-    screen: { x: 0, y: 0, w: screenW, h: screenH },
+    screen,
     shapes: [
       { kind: "rect", id: "L", x: 14 * s, y: top + 14 * s, w: 110 * s, h: 40 * s },
       { kind: "rect", id: "R", x: w - 124 * s, y: top + 14 * s, w: 110 * s, h: 40 * s },
@@ -94,6 +134,29 @@ export function layout(w: number, h: number): Layout {
         w: 70 * s,
         h: 28 * s,
       },
+    ],
+  };
+}
+
+// fourButtons is twoButtons with X, Y, A and B in a diamond, as on the
+// SNES and the DS: X on top, A right, B below, Y left.
+function fourButtons(w: number, h: number, sys: System): Layout {
+  const l = twoButtons(w, h, sys);
+  const a = l.shapes.find((v) => v.id === "A") as Circle;
+  const b = l.shapes.find((v) => v.id === "B") as Circle;
+  const r = a.r * 0.82;
+  const d = r * 1.25;
+  const cx = (a.x + b.x) / 2 + (l.landscape ? -4 : 6) * (r / 28);
+  const cy = (a.y + b.y) / 2;
+  const others = l.shapes.filter((v) => v.id !== "A" && v.id !== "B");
+  return {
+    ...l,
+    shapes: [
+      ...others,
+      { kind: "round", id: "X", x: cx, y: cy - d, r },
+      { kind: "round", id: "A", x: cx + d, y: cy, r },
+      { kind: "round", id: "B", x: cx, y: cy + d, r },
+      { kind: "round", id: "Y", x: cx - d, y: cy, r },
     ],
   };
 }
@@ -151,42 +214,47 @@ export function shapeAt(shapes: Shape[], x: number, y: number): Shape | null {
   return null;
 }
 
-const STORAGE = "parlor-layout";
+// Each console has its own layouts; the GBA keeps the original key.
+const storage = (p: Platform) => (p === "gba" ? "parlor-layout" : `parlor-layout-${p}`);
 
-export function loadCustoms(): Customs {
+export function loadCustoms(p: Platform = "gba"): Customs {
   try {
-    const v = JSON.parse(localStorage.getItem(STORAGE) ?? "{}");
+    const v = JSON.parse(localStorage.getItem(storage(p)) ?? "{}");
     return v && typeof v === "object" ? v : {};
   } catch {
     return {};
   }
 }
 
-export function saveCustoms(c: Customs) {
-  localStorage.setItem(STORAGE, JSON.stringify(c));
+export function saveCustoms(c: Customs, p: Platform = "gba") {
+  localStorage.setItem(storage(p), JSON.stringify(c));
 }
 
 // padLayout is for playing with a controller on a touch screen: the game
 // as big as it fits, and only a menu button to touch.
-export function padLayout(w: number, h: number): Layout {
-  const sw = Math.min(w, h * 1.5);
-  const sh = sw / 1.5;
+export function padLayout(w: number, h: number, sys: System = systems.gba): Layout {
+  const ratio = ratioOf(sys);
+  const sw = Math.min(w, h * ratio);
+  const sh = sw / ratio;
   const portrait = h > w;
   const screen = { x: (w - sw) / 2, y: portrait ? 0 : (h - sh) / 2, w: sw, h: sh };
-  return {
-    screen,
-    landscape: true,
-    shapes: [
-      {
-        kind: "rect",
-        id: "Menu",
-        x: w - 70,
-        y: portrait ? sh + 14 : 10,
-        w: 56,
-        h: 28,
-      },
-    ],
-  };
+  return withTouch(
+    {
+      screen,
+      landscape: true,
+      shapes: [
+        {
+          kind: "rect",
+          id: "Menu",
+          x: w - 70,
+          y: portrait && sh + 56 < h ? sh + 14 : 10,
+          w: 56,
+          h: 28,
+        },
+      ],
+    },
+    sys,
+  );
 }
 
 // How much bigger hit zones are than the drawn controls.

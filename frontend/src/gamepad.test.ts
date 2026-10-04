@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bind, defaults, firstPressed, read, type PadLike } from "./gamepad";
+import { systems } from "./systems";
 
 function pad(pressed: number[], axes = [0, 0]): PadLike {
   return {
@@ -26,6 +27,18 @@ describe("gamepad", () => {
     expect(b.B).toEqual([0]);
     expect(b.A).toEqual([]);
     expect([...read(pad([0]), b)]).toEqual(["B"]);
+  });
+  it("gives Y to consoles that have one, and Menu to the rest", () => {
+    const gba = systems.gba.keys;
+    const snes = systems.snes.keys;
+    expect([...read(pad([3]), defaults, gba)]).toEqual(["Menu"]);
+    expect([...read(pad([3]), defaults, snes)]).toEqual(["Y"]);
+    expect([...read(pad([2]), defaults, gba)]).toEqual([]);
+    expect([...read(pad([2]), defaults, snes)]).toEqual(["X"]);
+    // Home is Menu everywhere.
+    expect([...read(pad([16]), defaults, snes)]).toEqual(["Menu"]);
+    // A console without L and R ignores them.
+    expect([...read(pad([4]), defaults, systems.nes.keys)]).toEqual([]);
   });
   it("finds the pressed button", () => {
     expect(firstPressed(pad([5, 9]))).toBe(5);
