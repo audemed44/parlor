@@ -59,6 +59,7 @@ export const sources: Record<string, string> = {
   upload: "Uploaded",
   import: "Imported",
   restore: "Restored",
+  carry: "Carried over",
 };
 
 // coverText is the big text on a game's tile: the title without a leading

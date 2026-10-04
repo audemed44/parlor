@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	"github.com/audemed44/parlor/internal/store"
 )
@@ -66,16 +65,20 @@ func (s *Server) gameRoutes(mux *http.ServeMux) {
 		jsonResponse(w, map[string]bool{"ok": true})
 	})
 	// Per-game settings: the save type and real-time clock mGBA should use
-	// ("" lets it detect them).
+	// ("" lets it detect them), and whether the game is hidden.
 	mux.HandleFunc("POST /api/games/{id}/settings", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			SaveType string `json:"save_type"`
 			RTC      string `json:"rtc"`
+			Hidden   *bool  `json:"hidden"`
 		}
 		if !decode(w, r, &body) {
 			return
 		}
 		err := s.Store.SetOverrides(pathID(r), body.SaveType, body.RTC)
+		if err == nil && body.Hidden != nil {
+			err = s.Store.SetHidden(pathID(r), *body.Hidden)
+		}
 		if errors.Is(err, store.ErrInvalidSetting) {
 			failure(w, 400, "Unknown save type or clock setting")
 			return
@@ -110,7 +113,7 @@ func (s *Server) gameRoutes(mux *http.ServeMux) {
 			storeFailure(w, err)
 			return
 		}
-		f, err := os.Open(filepath.Join(s.ROMs, filepath.FromSlash(g.Path)))
+		f, err := os.Open(s.Store.ROMFile(s.ROMs, g))
 		if err != nil {
 			failure(w, 404, "The ROM file is missing; rescan the library")
 			return

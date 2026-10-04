@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/audemed44/parlor/internal/library"
 )
@@ -25,8 +26,43 @@ type Game struct {
 	// SaveType and RTC override what mGBA detects; "" leaves it to mGBA.
 	SaveType string `json:"save_type"`
 	RTC      string `json:"rtc"`
-	Save     *Save  `json:"save"`
+	// Hidden games are left out of the library grid (an old version of a
+	// hack, say), but keep their saves.
+	Hidden bool  `json:"hidden"`
+	Save   *Save `json:"save"`
 }
+
+// Patched is the path prefix of ROMs Parlor made by applying a patch. They
+// live in <data>/roms, since the library folder is read-only.
+const Patched = "parlor:"
+
+// ROMFile is where a game's ROM is on disk.
+func (s *Store) ROMFile(root string, g Game) string {
+	if rest, ok := strings.CutPrefix(g.Path, Patched); ok {
+		return filepath.Join(s.Dir, "roms", filepath.FromSlash(rest))
+	}
+	return filepath.Join(root, filepath.FromSlash(g.Path))
+}
+
+// scanAll lists the library's ROMs and the patched ones, with the patched
+// ones' paths prefixed.
+func (s *Store) scanAll(root string) ([]library.File, error) {
+	files, err := library.Scan(root)
+	if err != nil {
+		return nil, err
+	}
+	patched, err := library.Scan(filepath.Join(s.Dir, "roms"))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range patched {
+		f.Path = Patched + f.Path
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+func title(path string) string { return library.Title(strings.TrimPrefix(path, Patched)) }
 
 // ScanResult counts what a library scan changed.
 type ScanResult struct {
@@ -44,7 +80,7 @@ func (s *Store) Scan(root string) (ScanResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var res ScanResult
-	files, err := library.Scan(root)
+	files, err := s.scanAll(root)
 	if err != nil {
 		return res, err
 	}
@@ -87,7 +123,7 @@ func (s *Store) Scan(root string) (ScanResult, error) {
 		}
 		sum := k.sha1
 		if k.size != f.Size || k.mtime != f.MTime {
-			if sum, err = library.Hash(filepath.Join(root, filepath.FromSlash(f.Path))); err != nil {
+			if sum, err = library.Hash(s.ROMFile(root, Game{Path: f.Path})); err != nil {
 				slog.Warn("could not read ROM", "path", f.Path, "err", err)
 				continue
 			}
@@ -106,7 +142,7 @@ func (s *Store) Scan(root string) (ScanResult, error) {
 		}
 	}
 	for _, f := range added {
-		sum, err := library.Hash(filepath.Join(root, filepath.FromSlash(f.Path)))
+		sum, err := library.Hash(s.ROMFile(root, Game{Path: f.Path}))
 		if err != nil {
 			slog.Warn("could not read ROM", "path", f.Path, "err", err)
 			continue
@@ -122,11 +158,11 @@ func (s *Store) Scan(root string) (ScanResult, error) {
 			k := gone[renamed]
 			delete(gone, renamed)
 			_, err = s.DB.Exec("UPDATE games SET path=?, title=?, size=?, mtime=?, missing=0 WHERE id=?",
-				f.Path, library.Title(f.Path), f.Size, f.MTime, k.id)
+				f.Path, title(f.Path), f.Size, f.MTime, k.id)
 			res.Updated++
 		} else {
 			_, err = s.DB.Exec("INSERT INTO games(path, title, size, mtime, sha1, added) VALUES(?,?,?,?,?,?)",
-				f.Path, library.Title(f.Path), f.Size, f.MTime, sum, now)
+				f.Path, title(f.Path), f.Size, f.MTime, sum, now)
 			res.Added++
 		}
 		if err != nil {
@@ -146,12 +182,12 @@ func (s *Store) Scan(root string) (ScanResult, error) {
 	return res, err
 }
 
-const gameColumns = "id, path, title, size, sha1, missing, added, last_played, play_seconds, notes, save_type, rtc"
+const gameColumns = "id, path, title, size, sha1, missing, added, last_played, play_seconds, notes, save_type, rtc, hidden"
 
 func scanGame(row interface{ Scan(...any) error }) (Game, error) {
 	var g Game
 	err := row.Scan(&g.ID, &g.Path, &g.Title, &g.Size, &g.SHA1, &g.Missing, &g.Added, &g.LastPlayed, &g.PlaySeconds, &g.Notes,
-		&g.SaveType, &g.RTC)
+		&g.SaveType, &g.RTC, &g.Hidden)
 	return g, err
 }
 
@@ -229,6 +265,11 @@ func (s *Store) SetOverrides(id int64, saveType, rtc string) error {
 		return ErrInvalidSetting
 	}
 	return s.updateGame("UPDATE games SET save_type=?, rtc=? WHERE id=?", saveType, rtc, id)
+}
+
+// SetHidden hides a game from the library, or shows it again.
+func (s *Store) SetHidden(id int64, hidden bool) error {
+	return s.updateGame("UPDATE games SET hidden=? WHERE id=?", hidden, id)
 }
 
 func (s *Store) updateGame(query string, args ...any) error {

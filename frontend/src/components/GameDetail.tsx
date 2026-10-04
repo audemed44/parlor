@@ -2,11 +2,20 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { ArrowLeft, Download, History, Play, Trash2, Upload } from "lucide-preact";
 import { api, upload } from "../api";
 import { ago, deviceName, duration, size, sources, when } from "../lib";
-import { saveTypes, type GameDetail as Detail, type Save, type State } from "../types";
+import { saveTypes, type Game, type GameDetail as Detail, type Save, type State } from "../types";
+import { PatchForm } from "./PatchForm";
 import { Cover } from "./Cover";
 import { ErrorNote, Section } from "./ui";
 
-export function GameDetail({ id, onChange }: { id: number; onChange: () => void }) {
+export function GameDetail({
+  id,
+  games,
+  onChange,
+}: {
+  id: number;
+  games: Game[];
+  onChange: () => void;
+}) {
   const [game, setGame] = useState<Detail | null>(null),
     [notes, setNotes] = useState(""),
     [error, setError] = useState(""),
@@ -63,15 +72,17 @@ export function GameDetail({ id, onChange }: { id: number; onChange: () => void 
     }
   }
 
-  async function setOverrides(change: Partial<Pick<Detail, "save_type" | "rtc">>) {
+  async function setOverrides(change: Partial<Pick<Detail, "save_type" | "rtc" | "hidden">>) {
     if (!game) return;
     try {
       const g = await api<Detail>(`games/${id}/settings`, {
         save_type: game.save_type,
         rtc: game.rtc,
+        hidden: game.hidden,
         ...change,
       });
-      setGame({ ...game, save_type: g.save_type, rtc: g.rtc });
+      setGame({ ...game, save_type: g.save_type, rtc: g.rtc, hidden: g.hidden });
+      if (change.hidden !== undefined) onChange();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -276,6 +287,36 @@ export function GameDetail({ id, onChange }: { id: number; onChange: () => void 
         <p class="hint section-note">
           The clock is this device's: the game's day and night follow the time where you play.
         </p>
+        <div class="settings-grid">
+          <span class="eyebrow">Library</span>
+          <div class="segmented" role="radiogroup" aria-label="Library">
+            {(
+              [
+                [false, "Shown"],
+                [true, "Hidden"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={label}
+                role="radio"
+                aria-checked={game.hidden === value}
+                class={game.hidden === value ? "on" : ""}
+                onClick={() => setOverrides({ hidden: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <Section index="05" title="Update with a patch" />
+        <p class="hint section-note">
+          A new version of this hack? Apply its patch to the clean base ROM. The new version becomes
+          its own game, starting from this one's save.
+        </p>
+        <PatchForm games={games} from={game} onDone={onChange} />
       </section>
     </div>
   );

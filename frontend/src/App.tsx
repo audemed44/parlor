@@ -5,23 +5,27 @@ import { GameDetail } from "./components/GameDetail";
 import { ImportPage } from "./components/ImportPage";
 import { Library } from "./components/Library";
 import { Login } from "./components/Login";
+import { PatchPage } from "./components/PatchPage";
 import { Player } from "./components/Player";
 import { SettingsPage } from "./components/SettingsPage";
 import { ErrorNote } from "./components/ui";
 import type { Config, Game } from "./types";
 
-// Routes live in the URL hash: #/, #/game/3, #/play/3, #/import, #/settings.
+// Routes live in the URL hash: #/, #/game/3, #/play/3, #/import,
+// #/settings, #/patch.
 type Route =
   | { page: "library" }
   | { page: "game" | "play"; id: number }
   | { page: "import" }
-  | { page: "settings" };
+  | { page: "settings" }
+  | { page: "patch" };
 
 export function route(hash: string): Route {
   const m = hash.match(/^#\/(game|play)\/(\d+)$/);
   if (m) return { page: m[1] as "game" | "play", id: Number(m[2]) };
   if (hash === "#/import") return { page: "import" };
   if (hash === "#/settings") return { page: "settings" };
+  if (hash === "#/patch") return { page: "patch" };
   return { page: "library" };
 }
 
@@ -112,9 +116,11 @@ export function App() {
       </header>
       <ErrorNote error={error} />
       {at.page === "game" ? (
-        <GameDetail key={at.id} id={at.id} onChange={refresh} />
+        <GameDetail key={at.id} id={at.id} games={games} onChange={refresh} />
       ) : at.page === "settings" ? (
         <SettingsPage />
+      ) : at.page === "patch" ? (
+        <PatchPage games={games} onChange={refresh} />
       ) : at.page === "import" ? (
         <ImportPage games={games} onChange={refresh} />
       ) : (

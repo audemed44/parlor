@@ -47,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	s.gameRoutes(mux)
 	s.saveRoutes(mux)
 	s.stateRoutes(mux)
+	s.patchRoutes(mux)
 	s.importRoutes(mux)
 	s.settingsRoutes(mux)
 	if s.Files != nil {
