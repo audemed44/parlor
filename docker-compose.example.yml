@@ -1,6 +1,6 @@
 # Parlor serves your GBA, Game Boy, NES, SNES and DS ROMs to the browser,
 # where the emulators run, and keeps every game's save on the server. Put
-# it in your main stack.
+# it in your main stack. 3DS games need parlor-stream too (below).
 services:
   parlor:
     image: ghcr.io/audemed44/parlor:latest
@@ -17,6 +17,8 @@ services:
       - PARLOR_IMPORT_DIR=/import
       # The FOYER link in the header.
       # - HOMEPAGE_URL=https://home.example.com
+      # parlor-stream, for 3DS games.
+      # - PARLOR_STREAM_URL=http://parlor-stream:8090
       # Session cookies need HTTPS. Set false only for plain-HTTP testing.
       # - PARLOR_SECURE_COOKIES=false
     volumes:
@@ -26,3 +28,29 @@ services:
     ports:
       - "8088:8080"
     mem_limit: 64m
+
+  # Plays 3DS games on the server's GPU and streams them to the browser.
+  # Leave it out if you have none.
+  parlor-stream:
+    image: ghcr.io/audemed44/parlor-stream:latest
+    container_name: parlor-stream
+    restart: unless-stopped
+    environment:
+      - PARLOR_TOKEN=${PARLOR_TOKEN} # the same as Parlor's
+      - PARLOR_URL=http://parlor:8080
+      # The server's IPs that browsers reach (its Tailscale IP, its LAN IP).
+      - PARLOR_STREAM_HOSTS=100.64.0.1
+      # The resolution games start at (1-4×), and the tallest stream.
+      # - PARLOR_STREAM_SCALE=2
+      # - PARLOR_STREAM_MAX_HEIGHT=1440
+    volumes:
+      - ./romm/library:/roms:ro # the same ROMs as Parlor's
+      - ./parlor-stream:/data # system files and shader caches
+    # An AMD or Intel GPU. For NVIDIA (with the NVIDIA Container Toolkit),
+    # use `runtime: nvidia` and NVIDIA_VISIBLE_DEVICES=all instead.
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "993" # the host's render group: getent group render
+    ports:
+      - "8089:8089/udp" # the stream itself; same port on both sides

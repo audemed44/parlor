@@ -5,8 +5,8 @@ imports this file.
 
 ## Project
 
-A GBA, Game Boy, NES, SNES and DS library you can play from any browser,
-iPhone first, with every game's save kept on the server. GBA games run on
+A GBA, Game Boy, NES, SNES, DS and 3DS library you can play from any
+browser, iPhone first, with every game's save kept on the server. GBA games run on
 mGBA compiled to WebAssembly (`@thenick775/mgba-wasm`); the rest on
 RetroArch cores through EmulatorJS (`frontend/scripts/fetch-ejs.mjs`
 downloads a pinned release into `/ejs/<version>/`). The emulators run in
@@ -28,6 +28,16 @@ SQLite at `/data/parlor.db` plus files: each save version under
   checksum checks.
 - `internal/server`: HTTP API, auth, cross-origin isolation headers, the
   Foyer widget (`/api/foyer/widget`).
+- `internal/stream`, `cmd/parlor-stream`: the 3DS sidecar (its own image,
+  `Dockerfile.stream`). The game runs on a libretro core in a process of
+  its own per game (`retro`: cgo, headless EGL on a render node, frames
+  converted to NV12 on the GPU), frames go to H.264 and sound to Opus
+  (`media`: FFmpeg, VAAPI/NVENC/x264) and out over WebRTC (Pion; ICE-lite
+  on one UDP port), inputs come back on a data channel. It keeps saves and
+  states in Parlor through Parlor's API, like any player. Parlor's
+  `/api/games/{id}/stream` hands it the browser's offer
+  (`internal/server/stream.go`); `frontend/src/stream.ts` is the browser's
+  side.
 - `internal/testrom`: tiny homebrew ROMs. The GBA, GB, NES and SNES ones
   count A presses in battery RAM; the DS one turns the top screen green
   while the bottom one is touched. `go run ./cmd/testrom OUT.gba` (or
@@ -72,10 +82,20 @@ SQLite at `/data/parlor.db` plus files: each save version under
   are wrapped in a PNG of the screen (`png.ts`, chunk `prLs`); mouse
   positions on the canvas are corrected for the pixel ratio (RetroArch
   assumes device pixels).
+- 3DS saves are a deterministic tar of the core's `sdmc` folder (sorted,
+  no times or owners) so the same files give the same save. 3DS states
+  (~22 MiB) are written to disk as they arrive (`PutStateFrom`), never held
+  in Parlor's memory; state pictures are served without the state inside.
+  `retro` must be called from the one OS thread holding the GL context;
+  encoding runs on its own goroutine and drops frames when behind.
+- parlor-stream and `internal/stream` need cgo and FFmpeg, EGL and GBM
+  headers (CI installs them); Parlor itself stays cgo-free.
 - Every `/api/` call needs the token (bearer or the derived session
   cookie), and state-changing requests from another origin are refused.
 - **Low memory is a feature.** The server idles at a few MB. Direct Go
   dependency: modernc.org/sqlite (pure Go, cgo-free). Justify any new one.
+  Pion (webrtc, rtcp, interceptor) is only imported by parlor-stream: there's
+  no other WebRTC stack in Go.
 - UI style is Foyer's: Swiss editorial, always dark, heavy Inter headlines,
   tracked uppercase eyebrows, 2px rules over numbered headings, square
   corners, one accent (#2563ff). Check phone width, portrait and landscape.
@@ -90,4 +110,10 @@ Conventional Commits: `<type>(<scope>): <summary>`, e.g. `feat(player): ...`.
 test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...   # needs web/dist
 cd frontend && npm run format:check && npm run typecheck && npm test && npm run build
 docker build -t parlor:dev .
+docker build -f Dockerfile.stream -t parlor-stream:dev .
 ```
+
+The `internal/stream` packages need the C libraries; without them on the
+host, run their checks in the image's build stage
+(`docker build -f Dockerfile.stream --target build -t parlor-stream:build .`,
+then `go vet` and `go test` in it).
