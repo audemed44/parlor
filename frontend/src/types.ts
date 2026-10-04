@@ -4,7 +4,7 @@ export interface Save {
   created: string;
   size: number;
   sha256: string;
-  source: "play" | "upload" | "import" | "restore";
+  source: "play" | "upload" | "import" | "restore" | "carry";
   device: string;
   note: string;
 }
@@ -37,6 +37,7 @@ export interface Game {
   notes: string;
   save_type: string;
   rtc: "" | "on" | "off";
+  hidden: boolean;
   save: Save | null;
 }
 

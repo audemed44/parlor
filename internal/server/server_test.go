@@ -2,7 +2,9 @@ package server
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"hash/crc32"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -289,6 +291,107 @@ func TestGameSettings(t *testing.T) {
 	}
 	if resp, _ = h.do("POST", "/api/games/1/settings", map[string]any{"save_type": "CARD"}); resp.StatusCode != 400 {
 		t.Fatalf("bad: %d", resp.StatusCode)
+	}
+}
+
+// bpsFor is a BPS patch that turns source into target by writing every
+// byte of the target.
+func bpsFor(source, target []byte) []byte {
+	num := func(v uint64) (out []byte) {
+		for {
+			x := byte(v & 0x7f)
+			v >>= 7
+			if v == 0 {
+				return append(out, x|0x80)
+			}
+			out = append(out, x)
+			v--
+		}
+	}
+	p := append([]byte("BPS1"), num(uint64(len(source)))...)
+	p = append(p, num(uint64(len(target)))...)
+	p = append(p, num(0)...)
+	p = append(p, num(uint64((len(target)-1)<<2|1))...)
+	p = append(p, target...)
+	p = binary.LittleEndian.AppendUint32(p, crc32.ChecksumIEEE(source))
+	p = binary.LittleEndian.AppendUint32(p, crc32.ChecksumIEEE(target))
+	return binary.LittleEndian.AppendUint32(p, crc32.ChecksumIEEE(p))
+}
+
+func (h *harness) form(path string, fields map[string]string, name string, file []byte) (*http.Response, []byte) {
+	h.t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("file", name)
+	fw.Write(file)
+	for k, v := range fields {
+		mw.WriteField(k, v)
+	}
+	mw.Close()
+	req, _ := http.NewRequest("POST", h.srv.URL+path, &buf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return resp, data
+}
+
+func TestPatch(t *testing.T) {
+	h := setup(t)
+	h.do("PUT", "/api/games/1/save?base=0&device=iPhone", []byte("old version's save"))
+	h.do("POST", "/api/games/1/notes", map[string]string{"notes": "Gym 3"})
+	v2 := append(testrom.ROM(), []byte("version 2")...)
+	p := bpsFor(testrom.ROM(), v2)
+
+	// The base ROM is found by the patch's checksum.
+	resp, body := h.form("/api/patch", map[string]string{"title": "Parlor Test v2", "carry": "1", "hide": "1"}, "v2.bps", p)
+	var g store.Game
+	json.Unmarshal(body, &g)
+	if resp.StatusCode != 200 || g.Title != "Parlor Test v2" || g.Notes != "Gym 3" || g.Save == nil || g.Save.Source != "carry" {
+		t.Fatalf("patch: %d %s", resp.StatusCode, body)
+	}
+	resp, body = h.do("GET", "/api/games/"+itoa(g.ID)+"/rom", nil)
+	if resp.StatusCode != 200 || !bytes.Equal(body, v2) {
+		t.Fatalf("rom: %d %d bytes", resp.StatusCode, len(body))
+	}
+	resp, body = h.do("GET", "/api/games/"+itoa(g.ID)+"/save", nil)
+	if string(body) != "old version's save" {
+		t.Fatalf("carried save: %s", body)
+	}
+	var old store.Game
+	_, body = h.do("GET", "/api/games/1", nil)
+	json.Unmarshal(body, &old)
+	if !old.Hidden {
+		t.Fatalf("old version not hidden: %s", body)
+	}
+	// A rescan keeps the patched ROM.
+	_, body = h.do("POST", "/api/library/scan", map[string]any{})
+	if !strings.Contains(string(body), `"total":2`) || !strings.Contains(string(body), `"missing":0`) {
+		t.Fatalf("rescan: %s", body)
+	}
+	if resp, _ = h.do("POST", "/api/games/1/settings", map[string]any{"save_type": "", "rtc": "", "hidden": false}); resp.StatusCode != 200 {
+		t.Fatalf("unhide: %d", resp.StatusCode)
+	}
+
+	if resp, body = h.form("/api/patch", map[string]string{"title": "Again"}, "v2.bps", p); resp.StatusCode != 409 {
+		t.Fatalf("duplicate: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ = h.form("/api/patch", map[string]string{"title": "Other", "base": itoa(g.ID)}, "v2.bps", p); resp.StatusCode != 400 {
+		t.Fatalf("wrong base: %d", resp.StatusCode)
+	}
+	ips := []byte("PATCH\x00\x00\x10\x00\x01XEOF")
+	if resp, _ = h.form("/api/patch", map[string]string{"title": "IPS"}, "x.ips", ips); resp.StatusCode != 400 {
+		t.Fatalf("ips without base: %d", resp.StatusCode)
+	}
+	if resp, body = h.form("/api/patch", map[string]string{"title": "IPS", "base": "1"}, "x.ips", ips); resp.StatusCode != 200 {
+		t.Fatalf("ips: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ = h.form("/api/patch", map[string]string{"title": "../escape", "base": "1"}, "x.ips", []byte("PATCH\x00\x00\x11\x00\x01YEOF")); resp.StatusCode != 400 {
+		t.Fatalf("bad name: %d", resp.StatusCode)
 	}
 }
 

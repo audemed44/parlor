@@ -935,6 +935,39 @@ footer {
 .bindings .row .mono {
   text-align: right;
 }
+.patch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 520px;
+}
+.patch-form > .btn {
+  align-self: flex-start;
+}
+.file-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.checks label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.checks input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+.hidden-toggle {
+  margin-top: 24px;
+}
 .state-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));

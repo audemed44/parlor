@@ -1,6 +1,7 @@
 // Package store keeps Parlor's state: SQLite at <dir>/parlor.db, every save
-// version as a file under <dir>/saves/<game>/<version>.srm and save states
-// under <dir>/states/<game>/<slot>.ss. Keep them together in backups.
+// version as a file under <dir>/saves/<game>/<version>.srm, save states
+// under <dir>/states/<game>/<slot>.ss and patched ROMs in <dir>/roms. Keep
+// them together in backups.
 package store
 
 import (
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS states(
 var columns = []struct{ table, name, def string }{
 	{"games", "save_type", "TEXT NOT NULL DEFAULT ''"},
 	{"games", "rtc", "TEXT NOT NULL DEFAULT ''"},
+	{"games", "hidden", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 func migrate(db *sql.DB) error {
@@ -62,7 +64,7 @@ const timeFormat = "2006-01-02T15:04:05.000Z"
 
 func stamp(t time.Time) string { return t.UTC().Format(timeFormat) }
 
-// Store is the database plus the save and state files.
+// Store is the database plus the files: saves, states and patched ROMs.
 type Store struct {
 	DB  *sql.DB
 	Dir string
@@ -81,7 +83,7 @@ var ErrNotFound = errors.New("not found")
 
 // Open opens (creating and upgrading as needed) the store in dir.
 func Open(dir string) (*Store, error) {
-	for _, sub := range []string{"saves", "states"} {
+	for _, sub := range []string{"saves", "states", "roms"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0700); err != nil {
 			return nil, err
 		}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "preact/hooks";
-import { Play, RefreshCw, Search } from "lucide-preact";
+import { Play, RefreshCw, Search, Wand2 } from "lucide-preact";
 import { api } from "../api";
 import { ago, duration } from "../lib";
 import type { Game, ScanResult } from "../types";
@@ -12,12 +12,15 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
     [busy, setBusy] = useState(false),
     [note, setNote] = useState(""),
     [error, setError] = useState("");
-  const recent = games.find((g) => g.last_played && !g.missing);
+  const [showHidden, setShowHidden] = useState(false);
+  const recent = games.find((g) => g.last_played && !g.missing && !g.hidden);
+  const hidden = games.filter((g) => g.hidden).length;
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = q ? games.filter((g) => g.title.toLowerCase().includes(q)) : games;
+    let list = showHidden ? games : games.filter((g) => !g.hidden);
+    if (q) list = list.filter((g) => g.title.toLowerCase().includes(q));
     return [...list].sort((a, b) => a.title.localeCompare(b.title));
-  }, [games, query]);
+  }, [games, query, showHidden]);
 
   async function scan() {
     setBusy(true);
@@ -78,8 +81,11 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
       <section>
         <Section index="01" title="Library">
           <span class="muted mono small">
-            {note || `${games.filter((g) => !g.missing).length} games`}
+            {note || `${games.filter((g) => !g.missing && !g.hidden).length} games`}
           </span>
+          <a class="icon-btn" href="#/patch" title="Patch a ROM hack">
+            <Wand2 size={16} />
+          </a>
           <button class="icon-btn" title="Rescan the library folder" onClick={scan} disabled={busy}>
             <RefreshCw size={16} class={busy ? "spin" : ""} />
           </button>
@@ -104,7 +110,11 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
         ) : (
           <div class="grid">
             {shown.map((g) => (
-              <a class={"tile" + (g.missing ? " missing" : "")} href={`#/game/${g.id}`} key={g.id}>
+              <a
+                class={"tile" + (g.missing || g.hidden ? " missing" : "")}
+                href={`#/game/${g.id}`}
+                key={g.id}
+              >
                 <Cover title={g.title} />
                 <strong>{g.title}</strong>
                 <span class="hint">
@@ -119,6 +129,11 @@ export function Library({ games, onChange }: { games: Game[]; onChange: () => vo
               </a>
             ))}
           </div>
+        )}
+        {hidden > 0 && (
+          <button class="text-link hidden-toggle" onClick={() => setShowHidden(!showHidden)}>
+            {showHidden ? "Leave out hidden games" : `Show ${hidden} hidden`}
+          </button>
         )}
       </section>
     </div>
