@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/audemed44/parlor/internal/library"
 	"github.com/audemed44/parlor/internal/store"
 )
 
@@ -81,8 +82,8 @@ func buildWidget(games []store.Game, now time.Time) widget {
 		}
 		it := widgetItem{
 			Title:    g.Title,
-			Subtitle: fmt.Sprintf("%s · %s played", ago(g.LastPlayed, now), hours(g.PlaySeconds)),
-			URL:      "/#/play/" + strconv.FormatInt(g.ID, 10),
+			Subtitle: fmt.Sprintf("%s · %s · %s played", library.ShortName(g.Platform), ago(g.LastPlayed, now), hours(g.PlaySeconds)),
+			URL:      playURL(g),
 			Caption:  "Play",
 		}
 		if len(out.Items) == 0 {
@@ -125,4 +126,14 @@ func hours(seconds int64) string {
 		return fmt.Sprintf("%d min", seconds/60)
 	}
 	return fmt.Sprintf("%d h", seconds/3600)
+}
+
+// playURL opens a game: games other than the GBA's play on /play, the
+// page whose content policy EmulatorJS's cores need.
+func playURL(g store.Game) string {
+	id := strconv.FormatInt(g.ID, 10)
+	if g.Platform != "gba" {
+		return "/play#/play/" + id
+	}
+	return "/#/play/" + id
 }

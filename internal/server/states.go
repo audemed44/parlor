@@ -1,10 +1,11 @@
 package server
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -35,27 +36,29 @@ func (s *Server) stateRoutes(mux *http.ServeMux) {
 	})
 	// The state's bytes, as mGBA wrote them; its version is X-State-Id.
 	mux.HandleFunc("GET /api/games/{id}/states/{slot}", func(w http.ResponseWriter, r *http.Request) {
-		v, data, ok := s.state(w, r)
+		v, f, ok := s.state(w, r)
 		if !ok {
 			return
 		}
+		defer f.Close()
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("X-State-Id", strconv.FormatInt(v.ID, 10))
-		w.Write(data)
+		http.ServeContent(w, r, "", time.Time{}, f)
 	})
 	// The screenshot: mGBA's states are PNGs of the screen.
 	mux.HandleFunc("GET /api/games/{id}/states/{slot}/image", func(w http.ResponseWriter, r *http.Request) {
-		v, data, ok := s.state(w, r)
+		v, f, ok := s.state(w, r)
 		if !ok {
 			return
 		}
+		defer f.Close()
 		if !v.Image {
 			failure(w, 404, "This state has no screenshot")
 			return
 		}
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-		http.ServeContent(w, r, "", modTime(v.Created), bytes.NewReader(data))
+		http.ServeContent(w, r, "", modTime(v.Created), f)
 	})
 	mux.HandleFunc("PUT /api/games/{id}/states/{slot}", func(w http.ResponseWriter, r *http.Request) {
 		n := slot(r)
@@ -63,10 +66,14 @@ func (s *Server) stateRoutes(mux *http.ServeMux) {
 			failure(w, 400, store.ErrInvalidSlot.Error())
 			return
 		}
-		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, store.MaxStateSize))
+		data, err := readBody(w, r, store.MaxStateSize)
 		if err != nil {
 			failure(w, 413, "Save state is too large")
 			return
+		}
+		// A DS state is 6.5 MiB: give the memory back afterwards.
+		if len(data) > 1<<20 {
+			defer debug.FreeOSMemory()
 		}
 		// at is when the player took the state; one that waited offline
 		// doesn't replace a newer one.
@@ -85,18 +92,30 @@ func (s *Server) stateRoutes(mux *http.ServeMux) {
 	})
 }
 
-func (s *Server) state(w http.ResponseWriter, r *http.Request) (store.State, []byte, bool) {
+func (s *Server) state(w http.ResponseWriter, r *http.Request) (store.State, *os.File, bool) {
 	v, err := s.Store.StateIn(pathID(r), slot(r))
 	if err != nil {
 		storeFailure(w, err)
 		return v, nil, false
 	}
-	data, err := s.Store.StateData(v)
+	f, err := s.Store.OpenState(v)
 	if err != nil {
 		storeFailure(w, err)
 		return v, nil, false
 	}
-	return v, data, true
+	return v, f, true
+}
+
+// readBody reads a request body of at most limit bytes into a buffer of
+// its declared size, rather than one grown by doubling.
+func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {
+	body := http.MaxBytesReader(w, r.Body, limit)
+	if n := r.ContentLength; n > 0 && n <= limit {
+		data := make([]byte, n)
+		_, err := io.ReadFull(body, data)
+		return data, err
+	}
+	return io.ReadAll(body)
 }
 
 func stateResult(w http.ResponseWriter, v store.State, err error) {

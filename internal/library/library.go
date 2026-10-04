@@ -1,9 +1,10 @@
-// Package library finds the GBA ROMs in the library folder and matches save
-// files to them by name.
+// Package library finds the ROMs in the library folder, tells which console
+// each is for, and matches save files to them by name.
 package library
 
 import (
 	"crypto/sha1"
+	"encoding/binary"
 	"encoding/hex"
 	"io"
 	"io/fs"
@@ -21,11 +22,59 @@ type File struct {
 	MTime int64 // Unix seconds
 }
 
-// MaxROMSize is the largest GBA ROM (32 MiB); anything bigger isn't one.
-const MaxROMSize = 32 << 20
+// Platform is a console Parlor plays.
+type Platform struct {
+	ID    string
+	Short string
+	Name  string
+	Exts  []string
+	// MaxSize is the largest ROM for it; anything bigger isn't one.
+	MaxSize int64
+}
 
-// Scan lists the .gba files under root, sorted by path. Hidden files and
-// folders are skipped.
+// Platforms are the consoles, by ROM file extension. The Game Boy Color
+// plays Game Boy games too, but they're kept apart for the library.
+var Platforms = []Platform{
+	{"gba", "GBA", "Game Boy Advance", []string{".gba"}, 32 << 20},
+	{"gb", "GB", "Game Boy", []string{".gb"}, 8 << 20},
+	{"gbc", "GBC", "Game Boy Color", []string{".gbc"}, 8 << 20},
+	{"nes", "NES", "NES", []string{".nes"}, 8 << 20},
+	{"snes", "SNES", "Super Nintendo", []string{".sfc", ".smc"}, 16 << 20},
+	{"nds", "DS", "Nintendo DS", []string{".nds"}, 1 << 30},
+}
+
+// PlatformOf is the console a ROM is for, by its extension; "" for none.
+func PlatformOf(path string) string {
+	if p, ok := platformOf(path); ok {
+		return p.ID
+	}
+	return ""
+}
+
+// ShortName is a console's short name ("DS"), "" for none.
+func ShortName(id string) string {
+	for _, p := range Platforms {
+		if p.ID == id {
+			return p.Short
+		}
+	}
+	return ""
+}
+
+func platformOf(path string) (Platform, bool) {
+	ext := strings.ToLower(filepath.Ext(path))
+	for _, p := range Platforms {
+		for _, e := range p.Exts {
+			if e == ext {
+				return p, true
+			}
+		}
+	}
+	return Platform{}, false
+}
+
+// Scan lists the ROMs under root, sorted by path. Hidden files and folders
+// are skipped.
 func Scan(root string) ([]File, error) {
 	files := []File{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -38,11 +87,15 @@ func Scan(root string) ([]File, error) {
 			}
 			return nil
 		}
-		if d.IsDir() || !strings.EqualFold(filepath.Ext(path), ".gba") {
+		if d.IsDir() {
+			return nil
+		}
+		p, ok := platformOf(path)
+		if !ok {
 			return nil
 		}
 		info, err := d.Info()
-		if err != nil || !info.Mode().IsRegular() || info.Size() > MaxROMSize {
+		if err != nil || !info.Mode().IsRegular() || info.Size() > p.MaxSize {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -68,6 +121,53 @@ func Hash(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// folderNames are what save folders call the consoles (RomM's and
+// RetroDECK's platform folders).
+var folderNames = map[string]string{
+	"gba": "gba", "gb": "gb", "gbc": "gbc", "nes": "nes", "famicom": "nes",
+	"snes": "snes", "sfc": "snes", "nds": "nds",
+}
+
+// PlatformHint is the console a file's folders name, like saves/nds/...;
+// "" when none does.
+func PlatformHint(path string) string {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for i := len(parts) - 2; i >= 0; i-- {
+		if p, ok := folderNames[strings.ToLower(parts[i])]; ok {
+			return p
+		}
+	}
+	return ""
+}
+
+// Used is how much of a ROM file the game uses. DS dumps are padded to the
+// cartridge's size (a 512 MiB file may hold 280 MiB); the header says where
+// the game ends, so the padding is never sent. For other consoles, or a
+// header that doesn't make sense, it's the whole file.
+func Used(r io.ReaderAt, platform string, size int64) int64 {
+	var used int64
+	switch platform {
+	case "nds":
+		h := make([]byte, 0x214)
+		if _, err := r.ReadAt(h, 0); err != nil {
+			return size
+		}
+		used = int64(binary.LittleEndian.Uint32(h[0x80:]))
+		// DSi-enhanced games keep their DSi part after the DS one.
+		if h[0x12]&2 != 0 {
+			used = max(used, int64(binary.LittleEndian.Uint32(h[0x210:])))
+		}
+		// Download Play's signature follows the game.
+		used += 0x88
+	default:
+		return size
+	}
+	if used < 0x200 || used > size {
+		return size
+	}
+	return used
 }
 
 // Title is the name shown for a ROM: its file name without the extension.

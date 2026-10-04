@@ -13,9 +13,11 @@ import (
 
 // Game is one ROM in the library, with its latest save.
 type Game struct {
-	ID          int64  `json:"id"`
-	Path        string `json:"path"`
-	Title       string `json:"title"`
+	ID    int64  `json:"id"`
+	Path  string `json:"path"`
+	Title string `json:"title"`
+	// Platform is the console, from the ROM's extension ("gba", "nds").
+	Platform    string `json:"platform"`
 	Size        int64  `json:"size"`
 	SHA1        string `json:"sha1"`
 	Missing     bool   `json:"missing"`
@@ -190,6 +192,7 @@ func scanGame(row interface{ Scan(...any) error }) (Game, error) {
 	var g Game
 	err := row.Scan(&g.ID, &g.Path, &g.Title, &g.Size, &g.SHA1, &g.Missing, &g.Added, &g.LastPlayed, &g.PlaySeconds, &g.Notes,
 		&g.SaveType, &g.RTC, &g.Hidden, &g.Cover)
+	g.Platform = library.PlatformOf(g.Path)
 	return g, err
 }
 
@@ -285,21 +288,24 @@ func (s *Store) updateGame(query string, args ...any) error {
 	return nil
 }
 
-// Titles maps every game's ID to its title, for matching save files.
-func (s *Store) Titles() (map[int64]string, error) {
-	rows, err := s.DB.Query("SELECT id, title FROM games")
+type titled struct{ title, path string }
+
+// Titles maps every game's ID to its title and ROM path, for matching save
+// files.
+func (s *Store) Titles() (map[int64]titled, error) {
+	rows, err := s.DB.Query("SELECT id, title, path FROM games")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	titles := map[int64]string{}
+	titles := map[int64]titled{}
 	for rows.Next() {
 		var id int64
-		var title string
-		if err = rows.Scan(&id, &title); err != nil {
+		var t titled
+		if err = rows.Scan(&id, &t.title, &t.path); err != nil {
 			return nil, err
 		}
-		titles[id] = title
+		titles[id] = t
 	}
 	return titles, rows.Err()
 }

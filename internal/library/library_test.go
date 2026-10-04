@@ -1,6 +1,8 @@
 package library
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,7 +47,8 @@ func TestMatch(t *testing.T) {
 
 func TestScan(t *testing.T) {
 	root := t.TempDir()
-	for _, p := range []string{"b.gba", "a.GBA", "sub/c.gba", "notes.txt", ".hidden/d.gba", ".e.gba"} {
+	for _, p := range []string{"b.gba", "a.GBA", "sub/c.gba", "notes.txt", ".hidden/d.gba", ".e.gba",
+		"nds/roms/f.nds", "snes/g.sfc", "h.gbc", "i.3ds"} {
 		path := filepath.Join(root, p)
 		os.MkdirAll(filepath.Dir(path), 0755)
 		os.WriteFile(path, []byte("rom"), 0644)
@@ -58,7 +61,7 @@ func TestScan(t *testing.T) {
 	for _, f := range files {
 		got = append(got, f.Path)
 	}
-	want := []string{"a.GBA", "b.gba", "sub/c.gba"}
+	want := []string{"a.GBA", "b.gba", "h.gbc", "nds/roms/f.nds", "snes/g.sfc", "sub/c.gba"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -69,5 +72,47 @@ func TestScan(t *testing.T) {
 	}
 	if Title("sub/c.gba") != "c" {
 		t.Fatal("title")
+	}
+}
+
+func TestPlatformOf(t *testing.T) {
+	for path, want := range map[string]string{
+		"a.gba": "gba", "b.GB": "gb", "c.gbc": "gbc", "d.nes": "nes", "e.smc": "snes", "f.sfc": "snes",
+		"g.nds": "nds", "h.3ds": "", "j.zip": "", "k": "",
+	} {
+		if got := PlatformOf(path); got != want {
+			t.Errorf("PlatformOf(%q) = %q, want %q", path, got, want)
+		}
+	}
+	for path, want := range map[string]string{
+		"saves/nds/Pokemon Platinum.sav": "nds", "retrodeck-saves/n3ds/x.sav": "",
+		"users/1/saves/gba/7/Heart.srm": "gba", "Heart.srm": "", "nds.sav": "",
+	} {
+		if got := PlatformHint(path); got != want {
+			t.Errorf("PlatformHint(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestUsed(t *testing.T) {
+	// A DS cartridge padded to 64 KiB holding a 0x1000-byte game.
+	nds := make([]byte, 64<<10)
+	binary.LittleEndian.PutUint32(nds[0x80:], 0x1000)
+	if got := Used(bytes.NewReader(nds), "nds", int64(len(nds))); got != 0x1088 {
+		t.Fatalf("DS: %#x", got)
+	}
+	// DSi-enhanced: the DSi part ends later.
+	nds[0x12] = 2
+	binary.LittleEndian.PutUint32(nds[0x210:], 0x3000)
+	if got := Used(bytes.NewReader(nds), "nds", int64(len(nds))); got != 0x3088 {
+		t.Fatalf("DSi: %#x", got)
+	}
+	// A size past the end of the file means the header isn't one.
+	binary.LittleEndian.PutUint32(nds[0x80:], 1<<30)
+	if got := Used(bytes.NewReader(nds), "nds", int64(len(nds))); got != int64(len(nds)) {
+		t.Fatalf("bad DS header: %#x", got)
+	}
+	if got := Used(bytes.NewReader(nds), "gba", int64(len(nds))); got != int64(len(nds)) {
+		t.Fatalf("GBA: %#x", got)
 	}
 }

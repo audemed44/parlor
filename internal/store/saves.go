@@ -13,8 +13,9 @@ import (
 )
 
 // MaxSaveSize is the largest in-game save accepted. GBA saves are at most
-// 128 KiB (Flash 1M); RTC data can add a few bytes.
-const MaxSaveSize = 1 << 20
+// 128 KiB (Flash 1M), DS ones usually 512 KiB, though a few DS cartridges
+// hold up to 8 MiB.
+const MaxSaveSize = 8 << 20
 
 // ErrInvalidSave is returned for an empty or oversized save.
 var ErrInvalidSave = fmt.Errorf("a save must be between 1 byte and %d KiB", MaxSaveSize>>10)

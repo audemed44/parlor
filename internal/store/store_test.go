@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -304,6 +305,49 @@ func TestStates(t *testing.T) {
 	}
 	if cands, _ = s.Candidates(imports); cands[0].Imported != 1 {
 		t.Fatalf("not marked imported: %+v", cands)
+	}
+}
+
+func TestOtherConsoles(t *testing.T) {
+	s := open(t)
+	root, imports := t.TempDir(), t.TempDir()
+	write(t, root, "gba/roms/Pokemon Platinum Redux.gba", "gba")
+	write(t, root, "nds/roms/Pokemon Platinum (USA).nds", "nds")
+	if _, err := s.Scan(root); err != nil {
+		t.Fatal(err)
+	}
+	games, _ := s.Games()
+	platforms := map[string]int64{}
+	for _, g := range games {
+		platforms[g.Platform] = g.ID
+	}
+	ds := platforms["nds"]
+	if len(games) != 2 || ds == 0 || platforms["gba"] == 0 {
+		t.Fatalf("games: %+v", games)
+	}
+	// A DS game takes RetroArch's states (EmulatorJS), not mGBA's.
+	if _, err := s.PutState(ds, 1, NewState{Data: fakeState(1)}); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("mGBA state for a DS game: %v", err)
+	}
+	ra := append([]byte("RASTATE\x01MEM "), bytes.Repeat([]byte{7}, 7<<20)...)
+	if v, err := s.PutState(ds, 1, NewState{Data: ra}); err != nil || v.Size != int64(len(ra)) {
+		t.Fatalf("RetroArch state: %+v %v", v, err)
+	}
+	if _, err := s.PutState(platforms["gba"], 1, NewState{Data: ra}); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("RetroArch state for a GBA game: %v", err)
+	}
+	// A save in a console's folder is matched within that console.
+	write(t, imports, "retrodeck-saves/nds/Pokemon Platinum.sav", "save")
+	write(t, imports, "retrodeck-saves/gba/Pokemon Platinum Redux.srm", "save")
+	cands, _ := s.Candidates(imports)
+	for _, c := range cands {
+		want := platforms["gba"]
+		if strings.Contains(c.Path, "/nds/") {
+			want = ds
+		}
+		if c.Suggested != want {
+			t.Fatalf("%s suggested %d, want %d", c.Path, c.Suggested, want)
+		}
 	}
 }
 
